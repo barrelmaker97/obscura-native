@@ -2,18 +2,8 @@ name: Swift
 
 on:
   pull_request:
-    paths:
-      - swift/**
-      - proto
-      - .gitmodules
-      - .github/workflows/swift.yml
   push:
     branches: [main]
-    paths:
-      - swift/**
-      - proto
-      - .gitmodules
-      - .github/workflows/swift.yml
 
 concurrency:
   group: swift-${{ github.ref }}

@@ -24,7 +24,9 @@ let package = Package(
         // GRDB 6.29.3 + SQLCipher (CommonCrypto backend), maintained by DuckDuckGo.
         // 2.4.2-1 is their source-code release tag; 3.x jumps to GRDB 7.
         .package(url: "https://github.com/duckduckgo/GRDB.swift.git", exact: "2.4.2-1"),
-        .package(path: "vendored/libsignal/swift"),
+        // dev.sh copies libsignal's `swift/` package to this uniquely named
+        // path; otherwise its inferred identity collides with this directory.
+        .package(name: "LibSignalClient", path: "vendored/LibSignalClient"),
     ],
     targets: [
         .target(
@@ -32,7 +34,7 @@ let package = Package(
             dependencies: [
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "GRDB", package: "GRDB.swift"),
-                .product(name: "LibSignalClient", package: "swift"),
+                .product(name: "LibSignalClient", package: "LibSignalClient"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
