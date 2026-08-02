@@ -9,8 +9,10 @@ pin native behavior.
 Scope: the client-to-client (kit ↔ kit) contract — the E2E payload the server never sees.
 Layers:
 
-- **Transport** — [`proto/obscura/v1/obscura.proto`](../proto/obscura/v1/obscura.proto).
-  Shared with the server and specified by `proto/TRANSPORT.md`.
+- **Transport** —
+  [`obscura/v1/obscura.proto`](https://github.com/barrelmaker97/obscura-proto/blob/main/obscura/v1/obscura.proto).
+  Shared with the server and specified by
+  [`TRANSPORT.md`](https://github.com/barrelmaker97/obscura-proto/blob/main/TRANSPORT.md).
 - **Content** — [`protocol/obscura/client/v1/client.proto`](../protocol/obscura/client/v1/client.proto).
 - **Semantics** — this document. What the content *means* and how kits act on it.
 
@@ -237,8 +239,8 @@ Application entry routing is defined in pix's `DOMAIN_CONTRACT.md`.
 ### 2.4 Future-timestamp clamp
 
 An incoming `timestamp` more than **60s** beyond local wall-clock is clamped to
-`now + 60s` before it participates in §2.2, so a spoofed far-future timestamp
-cannot win every future conflict forever.
+`now + 60s` before it participates in the application's REPLACE ordering, so a
+spoofed far-future timestamp cannot win every future conflict forever.
 
 The clamp is normative on the **incoming** path, and both kits apply it there
 (`clampFutureTimestamp`, called from the inbox write). On the **local-write** path it is advisory:

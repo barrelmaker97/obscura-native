@@ -266,8 +266,8 @@ message ModelSync {
   string model = 1;                 // Model name: "story", "streak", "settings"
   string id = 2;                    // Entry ID: "story_1706389200_abc123"
   Op op = 3;                        // Operation type
-  uint64 timestamp = 4;             // Wall-clock ms. Clamped on receipt (NATIVE_CONTRACT.md §2.4) and
-                                    // tie-broken by author_device_id (§2.2). NOT a Lamport clock.
+  uint64 timestamp = 4;             // Wall-clock ms. Clamped on receipt (NATIVE_CONTRACT.md §2.4);
+                                    // app merge tie-breaks with author_device_id. NOT a Lamport clock.
   bytes data = 5;                   // JSON-encoded model data
   string author_device_id = 7;      // Which device created this entry
 

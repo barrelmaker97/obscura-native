@@ -12,3 +12,12 @@ repositories. Each history was rewritten into its permanent subdirectory with
 Authors, timestamps, and commit messages are preserved. Commit hashes changed
 because every historical file path gained a platform prefix. The source
 repositories remain the authority for old pull-request and commit URLs.
+
+## Client contract import
+
+The native-only client contract was later filtered from
+`barrelmaker97/obscura-proto` and merged without squashing:
+
+| Source `main` | Filtered head | Imported paths |
+|---|---|---|
+| `496983ce93f183410aab1b0d8911ac618c55542b` | `ad2f4a09ebb93e842e5b38feb9076972ef4c52b5` | `protocol/`, `docs/KIT_API.md`, `docs/NATIVE_CONTRACT.md`, `docs/HISTORY.md` |

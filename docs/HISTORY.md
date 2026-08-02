@@ -15,7 +15,13 @@ lands nowhere is worse than no citation. What is preserved here is exactly what 
 the F-finding numbers and the shape of the reset. Everything else went, because it described work
 that is finished.
 
-The full text is in git: `git show bb9259c:PLAN.md` and `git show bb9259c:RESET.md`.
+The full text remains in the source repository's history:
+
+```bash
+git clone https://github.com/barrelmaker97/obscura-proto
+git -C obscura-proto show bb9259c:PLAN.md
+git -C obscura-proto show bb9259c:RESET.md
+```
 
 ---
 
