@@ -33,7 +33,7 @@ schema parser.** If a task seems to require one, re-check the boundary in
   Native runtime. Everything *else* belongs in the app.
 - **Server:** `obscura.barrelmaker.dev` (OpenAPI spec at `/openapi.yaml`)
 - **Contract:** `obscura-proto` (shared submodule at `../proto/`) — `SPEC.md` is normative.
-- **Sibling kit:** `ObscuraKit-swift`. It must agree with this one on the **wire**
+- **Sibling kit:** [`../swift`](../swift). It must agree with this one on the **wire**
   (`../proto/conformance/wire.json`) and nothing more.
 
 > **Not a reference:** `obscura-client-web` is a throwaway proof-of-concept, **not** a porting

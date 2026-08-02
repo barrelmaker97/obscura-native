@@ -1,0 +1,6 @@
+# Shared editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

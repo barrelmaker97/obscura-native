@@ -1,17 +1,31 @@
-name: CI
+name: Swift
 
 on:
   pull_request:
+    paths:
+      - swift/**
+      - proto
+      - .gitmodules
+      - .github/workflows/swift.yml
   push:
     branches: [main]
+    paths:
+      - swift/**
+      - proto
+      - .gitmodules
+      - .github/workflows/swift.yml
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: swift-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   # libsignal is cloned + Rust-built at setup (gitignored, not vendored in-repo).
   LIBSIGNAL_VERSION: v0.40.0
+
+defaults:
+  run:
+    working-directory: swift
 
 jobs:
   # Fast PR gate — pure-logic unit tests, no server (mirrors Kotlin :lib:test).
@@ -32,7 +46,7 @@ jobs:
         id: libsignal
         uses: actions/cache@v4
         with:
-          path: vendored/libsignal
+          path: swift/vendored/libsignal
           key: libsignal-${{ env.LIBSIGNAL_VERSION }}-macos26
 
       - name: Fetch + build libsignal FFI (host)
@@ -71,7 +85,7 @@ jobs:
         id: libsignal
         uses: actions/cache@v4
         with:
-          path: vendored/libsignal
+          path: swift/vendored/libsignal
           # Same key as the unit job (same arch) — the cache is shared.
           key: libsignal-${{ env.LIBSIGNAL_VERSION }}-macos26
 

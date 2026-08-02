@@ -1,13 +1,27 @@
-name: CI
+name: Kotlin
 
 on:
   pull_request:
+    paths:
+      - kotlin/**
+      - proto
+      - .gitmodules
+      - .github/workflows/kotlin.yml
   push:
     branches: [main]
+    paths:
+      - kotlin/**
+      - proto
+      - .gitmodules
+      - .github/workflows/kotlin.yml
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: kotlin-${{ github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: kotlin
 
 jobs:
   # Fast PR gate. No network, no live server. <30s.
@@ -50,7 +64,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: lib-unit-test-report
-          path: lib/build/reports/tests/test/
+          path: kotlin/lib/build/reports/tests/test/
           retention-days: 7
 
       - name: Upload coverage report
@@ -59,8 +73,8 @@ jobs:
         with:
           name: lib-coverage-report
           path: |
-            lib/build/reports/kover/html/
-            lib/build/reports/kover/report.xml
+            kotlin/lib/build/reports/kover/html/
+            kotlin/lib/build/reports/kover/report.xml
           retention-days: 14
 
   # Server-dependent scenario suite (256 tests) against a CONTAINERIZED
@@ -132,5 +146,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: lib-integration-test-report
-          path: lib/build/reports/tests/integrationTest/
+          path: kotlin/lib/build/reports/tests/integrationTest/
           retention-days: 14

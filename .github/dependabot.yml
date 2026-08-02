@@ -13,7 +13,7 @@ updates:
   # library built with newer Kotlin, and several JetBrains/Square libraries
   # track the Kotlin release closely.
   - package-ecosystem: "gradle"
-    directory: "/"
+    directory: "/kotlin"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -71,6 +71,18 @@ updates:
       - dependency-name: "gradle"
         update-types: ["version-update:semver-major"]
       - dependency-name: "gradle-wrapper"
+        update-types: ["version-update:semver-major"]
+
+  # SwiftPM dependencies for the iOS platform package.
+  - package-ecosystem: "swift"
+    directory: "/swift"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    ignore:
+      # GRDB 3.x moves to GRDB 7 and requires a deliberate migration.
+      - dependency-name: "GRDB.swift"
         update-types: ["version-update:semver-major"]
 
   # ─── GitHub Actions ─────────────────────────────────────
