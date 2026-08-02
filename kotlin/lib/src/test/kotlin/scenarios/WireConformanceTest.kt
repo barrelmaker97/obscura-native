@@ -95,7 +95,11 @@ class WireConformanceTest {
     }
 
     private fun loadVectors(name: String): JSONObject {
-        val candidates = listOf("../proto/conformance/$name", "proto/conformance/$name")
+        val candidates = listOf(
+            "../../proto/conformance/$name",
+            "../proto/conformance/$name",
+            "proto/conformance/$name",
+        )
         val file = candidates.map(::File).firstOrNull { it.exists() }
             ?: error(
                 "conformance vector '$name' not found (looked in: ${candidates.joinToString()}). " +

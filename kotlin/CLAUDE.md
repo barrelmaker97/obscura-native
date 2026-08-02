@@ -2,8 +2,8 @@
 
 ## Read this before changing anything
 
-Read [`obscura-proto/SPEC.md`](../obscura-proto/SPEC.md) and
-[`obscura-proto/KIT_API.md`](../obscura-proto/KIT_API.md) first.
+Read [`obscura-proto/SPEC.md`](../proto/SPEC.md) and
+[`obscura-proto/KIT_API.md`](../proto/KIT_API.md) first.
 
 This kit exposes an explicit-audience send path, a durable
 `peek`/`consume`/`discard`/`depth` inbox, and opaque `EntryStore` storage.
@@ -32,9 +32,9 @@ schema parser.** If a task seems to require one, re-check the boundary in
   (no shared core), and background push processing cannot depend on a React
   Native runtime. Everything *else* belongs in the app.
 - **Server:** `obscura.barrelmaker.dev` (OpenAPI spec at `/openapi.yaml`)
-- **Contract:** `obscura-proto` (submodule at `proto/`) — `SPEC.md` is normative.
+- **Contract:** `obscura-proto` (shared submodule at `../proto/`) — `SPEC.md` is normative.
 - **Sibling kit:** `ObscuraKit-swift`. It must agree with this one on the **wire**
-  (`conformance/wire.json`) and nothing more.
+  (`../proto/conformance/wire.json`) and nothing more.
 
 > **Not a reference:** `obscura-client-web` is a throwaway proof-of-concept, **not** a porting
 > target and **not** a normative implementation.
@@ -50,7 +50,7 @@ schema parser.** If a task seems to require one, re-check the boundary in
 3. **Level 3 (app data):** `stores/InboxDomain.kt` + `stores/EntryStore.kt` — a durable inbox of
    decrypted rows and a blind key/value store of application entries, both keyed on an **opaque**
    model name. Payload bytes are never parsed. `wire/WireCodec.kt` owns the wire↔app-facing
-   mappings pinned by `conformance/wire.json`.
+   mappings pinned by `../proto/conformance/wire.json`.
 
 `ObscuraClient.kt` is the facade that wires all three levels together and exposes StateFlows for Compose views.
 

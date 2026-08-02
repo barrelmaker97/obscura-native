@@ -39,7 +39,7 @@ Regenerating with `--swift_opt=Visibility=Public` would fix that but exposes the
 
 The only thing this kit must match in ObscuraKit-Kotlin is the **wire**
 (`obscura-proto/conformance/wire.json`). Behavior is specified by
-[`obscura-proto/SPEC.md`](../../obscura-proto/SPEC.md) — the contract, not a sibling codebase.
+[`obscura-proto/SPEC.md`](../../proto/SPEC.md) — the contract, not a sibling codebase.
 
 ## The Public API Contract
 

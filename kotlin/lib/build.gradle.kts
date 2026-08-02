@@ -45,10 +45,10 @@ kotlin {
 sourceSets {
     main {
         proto {
-            // Canonical protos come from the obscura-proto submodule (../proto),
+            // Canonical protos come from the repository-root proto submodule,
             // the single source of truth shared with obscura-server and the other
-            // clients — replaces the old hand-copied ../fixtures which had drifted.
-            srcDir("../proto/obscura")
+            // clients — replaces the old hand-copied fixtures which had drifted.
+            srcDir("../../proto/obscura")
         }
     }
     create("integrationTest") {

@@ -4,12 +4,12 @@
 
 Read these first:
 
-- [`obscura-proto/SPEC.md` §0 — The kit boundary](../obscura-proto/SPEC.md) — normative, and the
+- [`obscura-proto/SPEC.md` §0 — The kit boundary](../proto/SPEC.md) — normative, and the
   section that decides every "should the kit do this?" argument.
-- [`obscura-proto/KIT_API.md`](../obscura-proto/KIT_API.md) — the app-facing surface this kit
+- [`obscura-proto/KIT_API.md`](../proto/KIT_API.md) — the app-facing surface this kit
   implements: the inbox (§3), payload classification (§4), `send` (§5), the entry store (§8.1), and
   §9's rule that the entry store does not grow a query API.
-- [`obscura-proto/HISTORY.md`](../obscura-proto/HISTORY.md) — non-normative
+- [`obscura-proto/HISTORY.md`](../proto/HISTORY.md) — non-normative
   migration history.
 
 The current app-facing surface is
@@ -61,7 +61,7 @@ It exists natively because libsignal has no supported shared core and
 background push processing cannot depend on a React Native runtime. Everything
 else belongs in the app.
 
-It must agree with ObscuraKit-Kotlin on the **wire** (`conformance/wire.json`) and nothing more.
+It must agree with ObscuraKit-Kotlin on the **wire** (`../proto/conformance/wire.json`) and nothing more.
 
 @README.md
 @docs/PITFALLS.md
