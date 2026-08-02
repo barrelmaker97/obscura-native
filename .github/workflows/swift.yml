@@ -34,7 +34,7 @@ jobs:
 
       - name: Cache libsignal (source + built FFI)
         id: libsignal
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: swift/vendored/libsignal
           key: libsignal-${{ env.LIBSIGNAL_VERSION }}-macos26
@@ -73,7 +73,7 @@ jobs:
 
       - name: Cache libsignal (source + built FFI)
         id: libsignal
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: swift/vendored/libsignal
           # Same key as the unit job (same arch) — the cache is shared.
@@ -102,7 +102,7 @@ jobs:
 
       - name: Cache obscura-server binary
         id: server-bin
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/obscura-server-bin
           key: obscura-server-${{ steps.server-ref.outputs.sha }}-macos26
