@@ -2,7 +2,7 @@ import XCTest
 import GRDB
 @testable import ObscuraKit
 
-/// Raw entry storage (`obscura-proto/KIT_API.md` §8.1).
+/// Raw entry storage (`KIT_API.md` §8.1).
 ///
 /// Mirrors `ObscuraKit-Kotlin`'s `EntryStoreTest`. The property under test throughout is **that the
 /// kit does not interpret anything**: merge moved to the app, so this store writes what it is given

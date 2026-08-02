@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 
 /**
- * `send` — the kit's explicit-audience send (`obscura-proto/KIT_API.md` §5).
+ * `send` — the kit's explicit-audience send (`KIT_API.md` §5).
  *
  * 1. the sending device must be excluded from its own fan-out;
  * 2. the sender gets no inbox row, so the app must write its own outgoing entry.

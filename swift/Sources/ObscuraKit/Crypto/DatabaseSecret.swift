@@ -19,7 +19,7 @@ public enum DatabaseSecret {
     ///   (e.g. `"$(AppIdentifierPrefix)com.example.shared"`). Pass `nil` — the default — to keep the
     ///   item in the app's own default group, which is the behaviour this kit has always had.
     ///
-    ///   **Why this parameter exists (`obscura-proto/KIT_API.md` P2).** A Notification Service
+    ///   **Why this parameter exists (`KIT_API.md` P2).** A Notification Service
     ///   Extension runs under a *different bundle id*, so it cannot read a keychain item in the
     ///   app's default access group — it would be unable to decrypt the SQLCipher database, i.e.
     ///   unable to do the one job SPEC §0.1 uses to justify native kits existing. The extension also

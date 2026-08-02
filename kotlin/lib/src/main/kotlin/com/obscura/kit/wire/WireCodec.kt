@@ -26,7 +26,7 @@ enum class ModelOp {
  * enums and the kit's app-facing forms.
  *
  * Keeping every mapping here prevents call-site drift. The shared
- * `obscura-proto/conformance/wire.json` vectors pin cross-platform behavior
+ * `protocol/conformance/wire.json` vectors pin cross-platform behavior
  * (SPEC §3).
  */
 object WireCodec {

@@ -32,6 +32,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      - name: Validate client protocol vectors
+        run: python3 ../protocol/conformance/validate.py
+
       - name: Unit tests
         run: ./gradlew :lib:test --no-daemon
 

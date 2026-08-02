@@ -1,7 +1,7 @@
 # Obscura Native
 
-Read [`proto/SPEC.md`](proto/SPEC.md) and
-[`proto/KIT_API.md`](proto/KIT_API.md) before changing cross-platform behavior.
+Read [`docs/NATIVE_CONTRACT.md`](docs/NATIVE_CONTRACT.md) and
+[`docs/KIT_API.md`](docs/KIT_API.md) before changing cross-platform behavior.
 Platform-specific guidance remains in `kotlin/CLAUDE.md` and
 `swift/CLAUDE.md`.
 
@@ -11,7 +11,7 @@ Platform-specific guidance remains in `kotlin/CLAUDE.md` and
   `obscura-pix`.
 - They must agree on the wire contract in `proto/`, not on internal design.
 - If a native layer reads a field, it must exist in
-  `proto/obscura/client/v1/client.proto`.
+  `protocol/obscura/client/v1/client.proto`.
 - Do not add app schemas, audience resolution, merge engines, expiry, query
   layers, or notification policy here.
 - Persist inbox payloads before acknowledging their server envelopes.
@@ -19,7 +19,8 @@ Platform-specific guidance remains in `kotlin/CLAUDE.md` and
 
 ## Shared protocol workflow
 
-There is one root `proto/` submodule. Do not add platform-local proto copies or
+The root `proto/` submodule contains only the server/native transport contract.
+Client content lives under `protocol/`. Do not add platform-local copies or
 submodules. A schema-shape change requires regenerated Swift bindings and both
 wire conformance suites.
 

@@ -20,7 +20,7 @@ public struct StoredEntry: Sendable, Equatable {
     }
 }
 
-/// Raw storage for application entries (`obscura-proto/KIT_API.md` §8.1).
+/// Raw storage for application entries (`KIT_API.md` §8.1).
 ///
 /// `InboxStore` is how messages arrive; this is where the app keeps what it made of them. The API is
 /// `put` / `all` / `delete`. `put` is a blind upsert; the app resolves merge before writing. This

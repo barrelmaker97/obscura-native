@@ -1,7 +1,7 @@
 import XCTest
 @testable import ObscuraKit
 
-/// `send` — the outbox half of the thin kit (`obscura-proto/KIT_API.md` §5).
+/// `send` — the outbox half of the thin kit (`KIT_API.md` §5).
 ///
 /// §5 requires two properties:
 ///

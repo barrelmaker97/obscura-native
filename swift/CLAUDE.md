@@ -4,12 +4,12 @@
 
 Read these first:
 
-- [`obscura-proto/SPEC.md` §0 — The kit boundary](../proto/SPEC.md) — normative, and the
+- [`NATIVE_CONTRACT.md` §0 — The kit boundary](../docs/NATIVE_CONTRACT.md) — normative, and the
   section that decides every "should the kit do this?" argument.
-- [`obscura-proto/KIT_API.md`](../proto/KIT_API.md) — the app-facing surface this kit
+- [`KIT_API.md`](../docs/KIT_API.md) — the app-facing surface this kit
   implements: the inbox (§3), payload classification (§4), `send` (§5), the entry store (§8.1), and
   §9's rule that the entry store does not grow a query API.
-- [`obscura-proto/HISTORY.md`](../proto/HISTORY.md) — non-normative
+- [`HISTORY.md`](../docs/HISTORY.md) — non-normative
   migration history.
 
 The current app-facing surface is
@@ -26,7 +26,7 @@ The rule that governs this repo:
 > If it is not in `client.proto`, the kit MUST NOT read it.**
 
 **Do not add an ORM, CRDT layer, query builder, audience/routing engine, or
-schema parser.** Re-check `SPEC.md` §0 and the shipping app before expanding the
+schema parser.** Re-check `NATIVE_CONTRACT.md` §0 and the shipping app before expanding the
 entry store beyond `KIT_API.md` §8.1.
 
 ## Current constraints
@@ -47,7 +47,7 @@ entry store beyond `KIT_API.md` §8.1.
   Prefer explicit-audience `send(to:...)`.
 - Legacy TEXT send/receive APIs remain source-level compatibility surfaces.
 - `MODEL_SYNC` has one durable receive write: `inbox.put`. Persistence errors
-  propagate and skip acknowledgement (`SPEC.md` §0.9).
+  propagate and skip acknowledgement (`NATIVE_CONTRACT.md` §0.9).
 
 `obscura-client-web` is a throwaway proof of concept, not a porting target or
 normative implementation.
@@ -61,7 +61,7 @@ It exists natively because libsignal has no supported shared core and
 background push processing cannot depend on a React Native runtime. Everything
 else belongs in the app.
 
-It must agree with ObscuraKit-Kotlin on the **wire** (`../proto/conformance/wire.json`) and nothing more.
+It must agree with ObscuraKit-Kotlin on the **wire** (`../protocol/conformance/wire.json`) and nothing more.
 
 @README.md
 @docs/PITFALLS.md
@@ -85,8 +85,9 @@ All smoke/scenario tests run against the live server.
 
 ## Reference implementations
 
-There is no porting reference. This kit is written against the contract in `obscura-proto`
-(`SPEC.md` + `conformance/`), not against another codebase.
+There is no porting reference. This kit is written against
+`docs/NATIVE_CONTRACT.md` and `protocol/conformance/`, not against another
+implementation.
 
 ## Server API Quick Reference
 

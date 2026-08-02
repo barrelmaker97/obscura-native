@@ -4,7 +4,7 @@ Status: **normative** for `ObscuraKit-Kotlin`, `ObscuraKit-swift`, and their
 application bridges.
 
 This document defines the boundary between an Obscura kit and an application.
-`SPEC.md` defines the shared behavioral rules; `client.proto` defines every
+`NATIVE_CONTRACT.md` defines the shared behavioral rules; `client.proto` defines every
 payload field a kit may inspect. Historical migrations and removed APIs belong
 in `HISTORY.md`, not here.
 
@@ -87,12 +87,12 @@ Each inbox row exposes:
 | `modelKey` | nullable string | Declared `ModelSync.model`; null for other arms. |
 | `entryId` | nullable string | Declared `ModelSync.id`; null for other arms. |
 | `op` | nullable string | Declared `ModelSync.op`; null for other arms. |
-| `sentAt` | nullable integer | Declared timestamp, clamped per `SPEC.md` §2.4. |
+| `sentAt` | nullable integer | Declared timestamp, clamped per `NATIVE_CONTRACT.md` §2.4. |
 | `payload` | bytes | Opaque serialized payload bytes. |
 
 Successful decryption authenticates the session selected by `senderDeviceId`.
 `senderUserId` is a server-stamped routing hint and SHOULD be cross-checked
-against the local owner of that device when known (`SPEC.md` §0.10). Neither
+against the local owner of that device when known (`NATIVE_CONTRACT.md` §0.10). Neither
 identity field comes from application payload data. Model fields are routing
 metadata, not authorization.
 
@@ -341,13 +341,14 @@ Kotlin hides its soft-deleted row. Both make it absent from later `all` results.
 ### 8.2 Merge
 
 The app selects a merge rule from its local model configuration when applying
-each `MODEL_SYNC`:
+each `MODEL_SYNC`. The normative rules live in
+[`DOMAIN_CONTRACT.md`](https://github.com/rhelsing/obscura-pix/blob/main/docs/DOMAIN_CONTRACT.md):
 
 - `APPEND`: first write for an entry ID wins; later repeats are idempotent.
 - `REPLACE`: highest `(sentAt, authorDeviceId)` wins.
 
 `authorDeviceId` comes from the authenticated sender device, never from payload
-data. Incoming timestamps are clamped per `SPEC.md` §2.4.
+data. Incoming timestamps are clamped per `NATIVE_CONTRACT.md` §2.4.
 
 The proto retains `OP_DELETE`, but the current application neither sends nor
 applies distributed deletes and excludes tombstone conformance cases. No

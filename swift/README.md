@@ -4,8 +4,8 @@ The **native iOS platform layer** for the Obscura app (`obscura-pix`). Not a gen
 framework; one consumer, no API-stability obligation.
 
 The normative brief is
-[`obscura-proto/SPEC.md`](../proto/SPEC.md), with the app-facing
-contract in [`obscura-proto/KIT_API.md`](../proto/KIT_API.md). Merge,
+[`NATIVE_CONTRACT.md`](../docs/NATIVE_CONTRACT.md), with the app-facing
+contract in [`KIT_API.md`](../docs/KIT_API.md). Merge,
 audience resolution, schemas, queries, expiry, and notification policy belong
 in `obscura-pix`; do not add those layers to this kit.
 
@@ -97,7 +97,7 @@ server. Both jobs run on macOS because GRDB's bundled SQLCipher requires
 `CommonCrypto` (see `docs/PITFALLS.md`).
 
 The two kits prove the shared wire mappings with
-`../proto/conformance/wire.json`. No test runs the two implementations directly against
+`../protocol/conformance/wire.json`. No test runs the two implementations directly against
 each other, so broader behavioral interoperability is not claimed.
 
 - Register, login, friend handshake, encrypted messaging

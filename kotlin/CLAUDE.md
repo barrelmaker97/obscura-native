@@ -2,8 +2,8 @@
 
 ## Read this before changing anything
 
-Read [`obscura-proto/SPEC.md`](../proto/SPEC.md) and
-[`obscura-proto/KIT_API.md`](../proto/KIT_API.md) first.
+Read [`NATIVE_CONTRACT.md`](../docs/NATIVE_CONTRACT.md) and
+[`KIT_API.md`](../docs/KIT_API.md) first.
 
 This kit exposes an explicit-audience send path, a durable
 `peek`/`consume`/`discard`/`depth` inbox, and opaque `EntryStore` storage.
@@ -22,7 +22,7 @@ The rule that governs this repo:
 
 **Do not add an ORM, CRDT layer, query builder, audience/routing engine, or
 schema parser.** If a task seems to require one, re-check the boundary in
-`SPEC.md` §0 and the application implementation in `obscura-pix`.
+`NATIVE_CONTRACT.md` §0 and the application implementation in `obscura-pix`.
 
 ## Quick Context
 
@@ -32,9 +32,10 @@ schema parser.** If a task seems to require one, re-check the boundary in
   (no shared core), and background push processing cannot depend on a React
   Native runtime. Everything *else* belongs in the app.
 - **Server:** `obscura.barrelmaker.dev` (OpenAPI spec at `/openapi.yaml`)
-- **Contract:** `obscura-proto` (shared submodule at `../proto/`) — `SPEC.md` is normative.
+- **Transport:** `obscura-proto` (shared submodule at `../proto/`).
+- **Client contract:** repository-local `protocol/` + `docs/`.
 - **Sibling kit:** [`../swift`](../swift). It must agree with this one on the **wire**
-  (`../proto/conformance/wire.json`) and nothing more.
+  (`../protocol/conformance/wire.json`) and nothing more.
 
 > **Not a reference:** `obscura-client-web` is a throwaway proof-of-concept, **not** a porting
 > target and **not** a normative implementation.
@@ -50,7 +51,7 @@ schema parser.** If a task seems to require one, re-check the boundary in
 3. **Level 3 (app data):** `stores/InboxDomain.kt` + `stores/EntryStore.kt` — a durable inbox of
    decrypted rows and a blind key/value store of application entries, both keyed on an **opaque**
    model name. Payload bytes are never parsed. `wire/WireCodec.kt` owns the wire↔app-facing
-   mappings pinned by `../proto/conformance/wire.json`.
+   mappings pinned by `../protocol/conformance/wire.json`.
 
 `ObscuraClient.kt` is the facade that wires all three levels together and exposes StateFlows for Compose views.
 

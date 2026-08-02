@@ -37,4 +37,5 @@ payload without requiring a canonical JSON encoding.
   semantic wire-to-app mappings.
 - A behavior change updates `wire.json` and both kit suites together.
 
-See `../HISTORY.md` for removed vectors and migration chronology.
+See [`../../docs/HISTORY.md`](../../docs/HISTORY.md) for removed vectors and
+migration chronology.

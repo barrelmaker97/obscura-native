@@ -1,29 +1,21 @@
-# Obscura client contract — SPEC
+# Native client contract
 
-**Spec version: 3**
+**Contract version: 1**
 
-The prose companion to the `.proto` files and the `conformance/` vectors. The
-protos pin the **shape** of the client-to-client contract; this document and
-per-implementation tests pin its **behavior**. Shared vectors cover the wire
-cases listed in `conformance/README.md`; where a vector exists, it is the
-encoding authority.
+The prose companion to the repository-local client schema and conformance
+vectors. The schema pins message shape; this document and implementation tests
+pin native behavior.
 
 Scope: the client-to-client (kit ↔ kit) contract — the E2E payload the server never sees.
 Layers:
 
-- **Transport** — `obscura/v1/obscura.proto`. Server + kits. Out of scope here.
-- **Content** — `obscura/client/v1/client.proto`. The message shapes.
+- **Transport** — [`proto/obscura/v1/obscura.proto`](../proto/obscura/v1/obscura.proto).
+  Shared with the server and specified by `proto/TRANSPORT.md`.
+- **Content** — [`protocol/obscura/client/v1/client.proto`](../protocol/obscura/client/v1/client.proto).
 - **Semantics** — this document. What the content *means* and how kits act on it.
 
-The `client` package is a distinct **layer** (client-to-client content), not a
-newer version of the `obscura.v1` transport — hence `obscura.client.v1`, where
-`v1` is a genuine version of the client contract. (`obscura.v1` is a legacy
-exception to this `obscura.<layer>.<version>` convention: it is really the
-*transport* layer but predates the naming. See the repo [`README`](README.md#package-naming).)
-
-The shipping kits — **ObscuraKit-Kotlin** and **ObscuraKit-swift** — MUST
-conform. "MUST" / "MUST NOT" are normative. (`obscura-client-web` is a throwaway
-proof-of-concept and is not a normative conformance target.)
+The Kotlin and Swift implementations MUST conform. "MUST" / "MUST NOT" are
+normative.
 
 ---
 
@@ -53,7 +45,7 @@ documented, or marketed as a reusable data layer.
 > **If the kit reads it, it is a field in `client.proto`.
 > If it is not in `client.proto`, the kit MUST NOT read it.**
 
-The proto *is* the boundary. Everything below follows from this one line.
+The client schema *is* the boundary. Everything below follows from this line.
 
 This rule is what makes the boundary reviewable: to check whether a kit has
 overstepped, read its field accesses. Any read of application data that did not
@@ -96,8 +88,7 @@ rule quietly becomes fiction.**
 1. **Ephemeral signals.** A `MODEL_SIGNAL` carries its audience in `contextId`, and the kit resolves
    it — this is the one audience a kit still derives. It is narrow by construction: the value MUST be
    the canonical two-party id of §1.3, exactly two participants, and a value that is not MUST send
-   **nothing** (§1.2). The kit reads no application field to do it. Both kits implement this, and
-   §1.2 describes it.
+   **nothing** (§1.2). The kit reads no application field to do it.
 
 ### 0.5 Sender identity
 
@@ -120,7 +111,8 @@ uses and their trust status.
 
 Model semantics and validation; recipient resolution; all derived state
 (queries, filters, sorting); notification copy; and expiry when implemented.
-The current app does not expire entries.
+The current app rules are defined in
+[`DOMAIN_CONTRACT.md`](https://github.com/rhelsing/obscura-pix/blob/main/docs/DOMAIN_CONTRACT.md).
 
 ### 0.7 Consequences
 
@@ -142,7 +134,7 @@ one application-owned implementation.
 
 **An ACK is a DELETE. Ack only what you have durably persisted.**
 
-On the gateway an ack is destructive: the server deletes the acked envelope from
+As defined by the transport contract, a gateway ack is destructive: the server deletes the acked envelope from
 the `messages` table (no tombstone, no redelivery). A message is redelivered only
 because it is *still on the server* — a fresh `MessagePump` on the next connection
 re-reads every remaining row. Therefore the ack is the client's commitment that it
@@ -166,7 +158,7 @@ Normative rules for the receive loop, identical in both kits:
 
 ### 0.10 Envelope identity: who sent this
 
-The transport `Envelope` carries **both** identifiers, each stamped by the server
+The shared transport `Envelope` carries **both** identifiers, each stamped by the server
 from the sender's device-scoped token and therefore unforgeable by the sender:
 
 | Field | Meaning | Signal's equivalent |
@@ -209,114 +201,38 @@ of that session's chain key, which only the sending device holds.
 
 ---
 
-## 1. Routing (delivery targeting)
+## 1. Delivery targeting
 
-**The caller names entry recipients** (§0.4). The app resolves entry audiences;
-the kit validates and delivers to that explicit set. The one kit-resolved
-audience is an ephemeral signal's `contextId`.
+### 1.1 Explicit entry recipients
 
-### 1.1 Ownership
+The caller names entry recipients. The native layer delivers to exactly that
+set, includes the author's other devices for self-sync, and excludes the
+sending device. It MUST NOT infer or broaden an application audience.
+`KIT_API.md` §5 defines this send path.
 
-On an entry send, the author's own other devices are always included and the
-sending device is always excluded. A caller cannot opt out of self-sync or
-accidentally encrypt to itself. `KIT_API.md` §5 defines the send path.
+### 1.2 Ephemeral signal audience
 
-The invariant does **not** hold for ephemeral signals, which deliberately exclude own devices
-entirely: a typing indicator is about a conversation, not about your account. That is not an
-inconsistency to fix.
+`MODEL_SIGNAL.contextId` is the one audience the native layer resolves. It MUST:
 
-### 1.2 Fail-loud rule (confidentiality)
+- be the canonical two-party value from §1.3;
+- contain the local user;
+- contain the authenticated sender on receive; and
+- resolve the remote participant through the accepted-friend graph.
 
-A misrouted 1:1 payload is a confidentiality breach. Therefore, whoever resolves
-a 1:1 audience MUST raise `DIRECT_ROUTING_UNRESOLVED` and send **nothing** when
-it cannot be resolved. It MUST NOT fall back to a broadcast. Specifically:
-
-- **by recipient**: the naming field is **missing or blank** → raise. (A field
-  that is present and non-blank but names a non-friend is *not* an error: it
-  resolves to zero external recipients, so the write reaches own devices only —
-  fail-safe, never a broadcast.)
-- **by conversation**: the value does not resolve to **exactly two** participants
-  (missing, blank, or not a canonical two-party value per §1.3) → raise.
-
-The app enforces this rule for entries. Both kits enforce it for
-`MODEL_SIGNAL.contextId`, where invalid context causes the signal to be dropped
-rather than guessed.
-
-**The resolved audience MUST be intersected with the local accepted-friend graph, and MUST contain
-the resolving user.** `conversationId` is a payload field a peer controls, so
-without the intersection a stranger can address a user of the attacker's
-choosing; without self-membership, an id naming two other people resolves to a
-conversation the local user does not belong to.
-
-Audience tests MUST use at least three identities. A two-party test cannot
-distinguish correct direct delivery from a broadcast.
+Invalid signals are dropped rather than broadcast. Audience tests MUST use at
+least three identities.
 
 ### 1.3 Canonical `conversationId`
 
-A conversation audience value — and a `MODEL_SIGNAL.contextId` — is the
-canonical two-party id: the two
-participants' userIds sorted lexicographically and joined with a single
-underscore, `"userIdA_userIdB"`. Splitting on `_` MUST yield exactly two
-non-empty parts. This form makes a 1:1 conversation address the same regardless
-of which participant composed the write, so a reply/receipt resolves in either
-direction.
+A conversation ID is the two participant user IDs sorted lexicographically and
+joined with one underscore, `"userIdA_userIdB"`. Splitting on `_` MUST yield
+exactly two non-empty parts.
 
-### 1.4 Error codes
-
-Fail-loud outcomes are identified by a stable `code` string (not message text),
-so cross-platform error handling can match on it.
-
-| Code | Raised when | Raised by |
-|---|---|---|
-| `DIRECT_ROUTING_UNRESOLVED` | A 1:1 audience cannot be resolved (see §1.2). | The app (`obscura-pix/src/domain/audience.ts`). The kits retain a compatibility enum case but do not raise it. |
+Application entry routing is defined in pix's `DOMAIN_CONTRACT.md`.
 
 ---
 
-## 2. Merge (conflict resolution)
-
-The app implements merge once in `obscura-pix/src/domain/merge.ts`. It selects
-the rule from local model configuration; kits carry the operation and ordering
-metadata but do not merge app entries.
-
-A message's merge rule decides how concurrent writes to the same entry `id`
-reconcile. Merge MUST be **convergent**: applying the same set of writes in any
-arrival order yields the identical resolved state.
-
-### 2.0 `OP_DELETE`
-
-`ModelSync.Op` retains `OP_DELETE` for wire compatibility, but the current app
-neither sends nor applies it. Distributed-delete and tombstone behavior is
-therefore unsupported, and tombstone vectors are excluded from app
-conformance. Kit-local entry deletion is not a distributed operation.
-
-### 2.1 `APPEND` (first write wins)
-
-Union keyed by entry `id`. The first write seen for an `id` is kept; later
-writes with the same `id` are ignored (idempotent). `APPEND` entries are
-immutable by construction (ids are unique: `model_timestamp_random`), so a
-repeated `id` carries identical content and order cannot matter.
-
-### 2.2 `REPLACE` (last writer wins)
-
-Each `id` resolves to the winner under a **total order on
-`(sentAt, authorDeviceId)`** (`timestamp` on the wire):
-
-1. Strictly-greater `timestamp` wins.
-2. On an **equal** `timestamp`, the lexicographically-**higher** `authorDeviceId`
-   wins.
-3. Equal `timestamp` **and** equal `authorDeviceId` is the same logical write —
-   idempotent, the existing entry is kept.
-
-The `authorDeviceId` tie-break (2) is mandatory: without it, an equal-timestamp
-conflict resolves to "whichever write arrived first", so two devices that
-receive the two writes in different orders converge to **different** states and
-never reconcile. App tests MUST apply competing writes in multiple orders;
-`obscura-pix/src/domain/__tests__/merge.vectors.test.ts` does so.
-
-> **`authorDeviceId` MUST come from the decrypting session, never from a payload
-> field** (§0.10 rule 4). A peer-asserted value turns the tie-break into a way to
-> win every equal-timestamp conflict on demand.
-
+## 2. Incoming ordering metadata
 
 ### 2.4 Future-timestamp clamp
 
@@ -335,9 +251,10 @@ express deterministically, so it is verified in implementation tests instead.
 
 ## 3. Wire (encoding)
 
-*Vectors: [`conformance/wire.json`](conformance/wire.json).*
+*Vectors: [`protocol/conformance/wire.json`](../protocol/conformance/wire.json).*
 
-The client content is a `ClientMessage` (`obscura/client/v1/client.proto`). This
+The client content is a
+[`ClientMessage`](../protocol/obscura/client/v1/client.proto). This
 section pins two things about it: the **wire ↔ app-facing-form mappings** (the message
 kind and the two content enums (`EncryptedMessage.Type` is transport, not content)) and **round-trip preservation** of a
 `ModelSync`.
@@ -394,4 +311,5 @@ first.**
 
 ## History
 
-See `HISTORY.md` and Git history for superseded behavior and migration records.
+See [`HISTORY.md`](HISTORY.md) and Git history for superseded behavior and
+migration records.

@@ -62,7 +62,7 @@ final class SignalAudienceTests: XCTestCase {
         await rateLimitDelay()
         try await ObscuraTestClient.becomeFriends(alice, bob)
 
-        // `SPEC.md` §1.2 says fail loud rather than guess an audience. For an ephemeral signal
+        // `NATIVE_CONTRACT.md` §1.2 says fail closed rather than guess an audience. For an ephemeral signal
         // the correct failure is to send nothing: dropping a typing indicator costs nothing,
         // guessing its audience leaks the conversation.
         await alice.client.sendTyping(modelKey: "directMessage", conversationId: "not-a-conversation-id")

@@ -86,7 +86,7 @@ SwiftUI View: .task { for await msgs in client.messages.observeMessages(id).valu
 ```
 
 > **Sessions key on the device UUID, never `registrationId`**
-> (`obscura-proto/SPEC.md` §0.10). `MessengerActor.deviceMap` retains
+> (`NATIVE_CONTRACT.md` §0.10). `MessengerActor.deviceMap` retains
 > `registrationId` only as diagnostic protocol metadata.
 
 ## Key Invariant — for kit-owned state
@@ -95,7 +95,7 @@ Friends, devices and messages are kit-owned and push to the view. **Application 
 a MODEL_SYNC becomes a row in `client.inbox`, and the app drains it (`peek` → merge → write →
 `consume`). The receive path does not promote inbox rows automatically; the app
 explicitly stores merged opaque entries through `client.entries`
-(`obscura-proto/KIT_API.md` §3).
+(`KIT_API.md` §3).
 
 **For everything the kit does own: the view never asks for data. Data comes to the view.**
 

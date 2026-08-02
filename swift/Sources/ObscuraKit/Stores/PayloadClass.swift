@@ -1,6 +1,6 @@
 import Foundation
 
-/// What a payload arm is allowed to do on receipt (`obscura-proto/KIT_API.md` §4).
+/// What a payload arm is allowed to do on receipt (`KIT_API.md` §4).
 ///
 /// Every arm MUST be classified, because **the classification is what makes SPEC §0.9 checkable
 /// rather than aspirational**. "Never ack before persisting" is not a rule the code can follow until

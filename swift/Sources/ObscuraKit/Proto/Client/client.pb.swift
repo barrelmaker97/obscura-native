@@ -17,8 +17,8 @@
 // `obscura.client.v1` package (layer = client, version = v1). A future
 // breaking client-contract change becomes a genuine `obscura.client.v2`.
 //
-// Behavioral contract: see SPEC.md and the conformance/ vectors at the repo
-// root. The protos pin the message *shape*; SPEC.md + vectors pin behavior.
+// Behavioral contract: see docs/NATIVE_CONTRACT.md and protocol/conformance/.
+// This schema pins message shape; the contract and vectors pin behavior.
 
 #if canImport(FoundationEssentials)
 import FoundationEssentials

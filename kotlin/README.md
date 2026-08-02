@@ -4,8 +4,8 @@ The **native Android/JVM platform layer** for the Obscura app (`obscura-pix`). I
 general-purpose framework, it has exactly one consumer, and it owes API stability to no one.
 
 Read [`CLAUDE.md`](CLAUDE.md) before changing anything. The normative brief is
-[`obscura-proto/SPEC.md` §0 — the kit boundary](../proto/SPEC.md), with the app-facing
-contract in [`obscura-proto/KIT_API.md`](../proto/KIT_API.md).
+[`NATIVE_CONTRACT.md` §0 — the kit boundary](../docs/NATIVE_CONTRACT.md), with the app-facing
+contract in [`KIT_API.md`](../docs/KIT_API.md).
 
 **Why a native kit exists at all:** libsignal ships only as `libsignal-java` / `libsignal-swift` —
 there is no supported shared core, so the Signal protocol must be implemented
@@ -127,7 +127,7 @@ public facade against a configured `obscura-server`.
 ## Cross-kit contract
 
 `ObscuraKit-swift` must agree with this kit on the **wire**
-(`conformance/wire.json`). Broader implementation parity is not implied.
+([`protocol/conformance/wire.json`](../protocol/conformance/wire.json)). Broader implementation parity is not implied.
 
 ## Build & Test
 

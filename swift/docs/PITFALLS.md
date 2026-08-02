@@ -17,7 +17,7 @@
 **Signal sessions are keyed on the DEVICE UUID — never on `registrationId`.** `ProtocolAddress` is
 `(deviceUUID, 1)`; the inbound session comes from `Envelope.sender_device_id`; prekey bundles are
 selected by device UUID with **no** fallback to an arbitrary bundle. This is normative in
-`obscura-proto/SPEC.md` §0.10.
+`NATIVE_CONTRACT.md` §0.10.
 
 `registrationId` is Signal protocol metadata, not an address.
 `TwoDeviceSendTests` covers live two-device fan-out across a gateway reconnect;

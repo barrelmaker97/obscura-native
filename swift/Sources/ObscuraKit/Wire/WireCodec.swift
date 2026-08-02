@@ -6,7 +6,7 @@ import Foundation
 /// `SignalKind` carry `OP_`/`SIGNAL_KIND_` prefixes and move CREATE/typing off
 /// wire-0 (so 0 can mean UNSPECIFIED). A kit that maps these inconsistently
 /// silently breaks cross-platform interop, so the mappings are consolidated here
-/// and pinned by `proto/conformance/wire.json` (see obscura-proto SPEC §3).
+/// and pinned by `protocol/conformance/wire.json` (see NATIVE_CONTRACT §3).
 /// Mirrors the Kotlin kit's `WireCodec`.
 ///
 /// Internal on purpose: SwiftProtobuf generates the `Obscura_Client_V1_*` types with

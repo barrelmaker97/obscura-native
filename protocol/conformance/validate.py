@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
-"""Self-contained well-formedness validator for the L3 conformance vectors.
+"""Self-contained well-formedness validator for client conformance vectors.
 
-This is obscura-proto's *upstream* CI responsibility: guarantee the vector
-artifacts are coherent (valid JSON, expected structure, no orphan files, spec
-cross-referenced) WITHOUT any knowledge of how a kit builds. Whether a kit
-*satisfies* a vector is the consumer's job, verified in each kit's own CI when
-it adopts a new proto commit (submodule bump). See conformance/README.md.
+This repository guarantees that vector artifacts are coherent (valid JSON,
+expected structure, no orphan files, contract cross-referenced). Each platform
+suite verifies that its codec satisfies the vectors.
 
 Runs with only the Python stdlib. Collects every violation, then exits non-zero
 so an author sees all problems at once.
 
-    python3 conformance/validate.py
+    python3 protocol/conformance/validate.py
 """
 
 from __future__ import annotations
@@ -20,7 +18,7 @@ import sys
 from pathlib import Path
 
 CONFORMANCE_DIR = Path(__file__).resolve().parent
-SPEC = CONFORMANCE_DIR.parent / "SPEC.md"
+CONTRACT = CONFORMANCE_DIR.parents[1] / "docs" / "NATIVE_CONTRACT.md"
 
 # The vector files this validator knows how to check. Adding a new behavior
 # class is a deliberate act: register its file + a checker here (fail-loud).
@@ -135,14 +133,14 @@ def main() -> int:
     present = {p.stem for p in CONFORMANCE_DIR.glob("*.json")}
     orphans = present - KNOWN_FILES
     for stem in sorted(orphans):
-        rep.err(f"{stem}.json", "unknown vector file — register it in validate.py (KNOWN_FILES + a checker) and SPEC.md")
+        rep.err(f"{stem}.json", "unknown vector file — register it in validate.py and NATIVE_CONTRACT.md")
     missing = KNOWN_FILES - present
     for stem in sorted(missing):
         rep.err(f"{stem}.json", "expected vector file is missing")
 
-    spec_text = SPEC.read_text() if SPEC.exists() else ""
-    if not SPEC.exists():
-        rep.err("SPEC.md", "canonical spec not found next to conformance/")
+    contract_text = CONTRACT.read_text() if CONTRACT.exists() else ""
+    if not CONTRACT.exists():
+        rep.err("NATIVE_CONTRACT.md", "canonical native contract not found under docs/")
 
     for stem in sorted(KNOWN_FILES & present):
         path = CONFORMANCE_DIR / f"{stem}.json"
@@ -155,8 +153,8 @@ def main() -> int:
             rep.err(f"{stem}.json", "top level must be a JSON object")
             continue
         CHECKERS[stem](rep, doc)
-        if f"{stem}.json" not in spec_text:
-            rep.err(f"{stem}.json", "not referenced anywhere in SPEC.md (spec drift / orphan)")
+        if f"{stem}.json" not in contract_text:
+            rep.err(f"{stem}.json", "not referenced anywhere in NATIVE_CONTRACT.md")
 
     if rep.errors:
         print(f"conformance vectors INVALID — {len(rep.errors)} problem(s):\n", file=sys.stderr)

@@ -8,7 +8,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 /**
- * The durable inbox (`obscura-proto/KIT_API.md` §3).
+ * The durable inbox (`KIT_API.md` §3).
  *
  * These test the properties the design is *for*, not the SQL. Each one corresponds to a normative
  * rule, and most of them exist because getting the rule wrong loses messages permanently — the row

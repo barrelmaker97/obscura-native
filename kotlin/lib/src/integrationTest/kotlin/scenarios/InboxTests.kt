@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 
 /**
- * The durable inbox, end to end against a real server (`obscura-proto/KIT_API.md` §3).
+ * The durable inbox, end to end against a real server (`KIT_API.md` §3).
  *
  * `InboxDomainTest` covers the store's rules in isolation. This file covers the part that cannot be
  * faked: that a real MODEL_SYNC, sent by a real peer over a real Signal session and delivered by the

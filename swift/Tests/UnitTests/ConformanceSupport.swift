@@ -1,9 +1,8 @@
 import Foundation
 import XCTest
 
-/// Loads the language-neutral L3 conformance vectors from the obscura-proto
-/// submodule (`../proto/conformance/*.json`) so this kit runs the SAME files as the
-/// Kotlin (and future web) kits. See obscura-proto/SPEC.md + conformance/README.md.
+/// Loads the repository's language-neutral client conformance vectors so the
+/// Swift and Kotlin implementations run the same cases.
 ///
 /// The path is derived from this source file's location, so it is independent of
 /// the test runner's working directory.
@@ -22,11 +21,11 @@ enum ConformanceVectors {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> [String: Any] {
-        let url = repositoryRoot.appendingPathComponent("proto/conformance/\(name)")
+        let url = repositoryRoot.appendingPathComponent("protocol/conformance/\(name)")
         guard let data = try? Data(contentsOf: url) else {
             XCTFail(
                 "conformance vector '\(name)' not found at \(url.path). " +
-                "Is the obscura-proto submodule checked out? Run: git submodule update --init",
+                "Is protocol/conformance present in the repository checkout?",
                 file: file, line: line
             )
             throw NSError(domain: "conformance", code: 1)

@@ -1,4 +1,4 @@
--- The durable inbox (obscura-proto/KIT_API.md §3).
+-- The durable inbox (KIT_API.md §3).
 --
 -- One row per successfully decrypted INBOXED message (§4). The kit stores bytes it cannot read:
 -- every column is either kit-owned identity or a declared client.proto field, and `payload` is

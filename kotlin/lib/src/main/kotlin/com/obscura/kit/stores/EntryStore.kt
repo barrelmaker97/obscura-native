@@ -20,7 +20,7 @@ data class StoredEntry(
 )
 
 /**
- * Raw storage for application entries (`obscura-proto/KIT_API.md` §8.1).
+ * Raw storage for application entries (`KIT_API.md` §8.1).
  *
  * The other half of the thin kit's app-facing surface: `InboxDomain` is how messages arrive,
  * this is where the app keeps what it made of them. Together they are the whole data path.

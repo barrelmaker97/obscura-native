@@ -1,4 +1,4 @@
--- Migration 2 -> 3: the durable inbox (obscura-proto/KIT_API.md §3).
+-- Migration 2 -> 3: the durable inbox (KIT_API.md §3).
 --
 -- This is the first migration that carries real weight rather than establishing the mechanism, and
 -- it is the exact case P1 was adopted for. Without it, `Inbox.sq` would reach NEW installs only:

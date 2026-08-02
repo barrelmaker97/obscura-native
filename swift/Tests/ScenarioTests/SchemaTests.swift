@@ -45,7 +45,7 @@ final class SchemaTests: XCTestCase {
     /// Not all thirteen: a frozen copy of every table would be a second schema to maintain, and the
     /// double-entry that creates is the thing `expectedTables`' own doc warns about. These two earn
     /// it — `inbox_rows` because after an ack its row is the only copy of a message anywhere
-    /// (`obscura-proto/SPEC.md` §0.9), and `model_entries` because it is the app's entire entry
+    /// (`NATIVE_CONTRACT.md` §0.9), and `model_entries` because it is the app's entire entry
     /// store and is the table `v2` rebuilds.
     private static let frozenColumns: [String: [String]] = [
         "model_entries": [

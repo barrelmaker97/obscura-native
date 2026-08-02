@@ -4,7 +4,7 @@ import SwiftProtobuf
 @testable import ObscuraKit
 
 /// Vector-driven L3 wire conformance, consuming the shared
-/// `../proto/conformance/wire.json` (obscura-proto SPEC §3). Every kit runs the
+/// `../protocol/conformance/wire.json` (NATIVE_CONTRACT §3). Both platforms run the
 /// same file.
 ///
 /// Pins the enum <-> app-facing-form mappings introduced by the v2 client.proto
