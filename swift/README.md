@@ -140,6 +140,8 @@ current kit contract. The shipping consumer is `obscura-pix`.
 # Build libsignal for iOS simulator first:
 cd vendored/libsignal
 RUSTUP_TOOLCHAIN=stable CARGO_BUILD_TARGET=aarch64-apple-ios-sim ./swift/build_ffi.sh -r
+cd ../..
+./dev.sh prepare
 
 # Then open in Xcode:
 open App/obscura-base/obscura-base.xcodeproj

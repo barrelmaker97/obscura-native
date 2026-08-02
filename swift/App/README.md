@@ -58,9 +58,10 @@ Output: `vendored/libsignal/target/aarch64-apple-ios-sim/release/libsignal_ffi.a
 
 ## Opening in Xcode
 
-1. Open `App/obscura-base/obscura-base.xcodeproj`
-2. Xcode will resolve SPM dependencies automatically (ObscuraKit, GRDB, SwiftProtobuf, LibSignalClient)
-3. Select a simulator or device target and build
+1. Run `./dev.sh prepare` from the Swift package root.
+2. Open `App/obscura-base/obscura-base.xcodeproj`.
+3. Xcode will resolve SPM dependencies automatically (ObscuraKit, GRDB, SwiftProtobuf, LibSignalClient).
+4. Select a simulator or device target and build.
 
 The project is pre-configured with:
 - **Local package dependency** on `../../` (the ObscuraKit package root)
