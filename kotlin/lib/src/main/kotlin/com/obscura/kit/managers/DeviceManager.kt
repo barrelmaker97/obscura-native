@@ -1,0 +1,177 @@
+package com.obscura.kit.managers
+
+import com.obscura.kit.crypto.toBase64
+import com.obscura.kit.managers.SignalKeyUtils.toApiJson
+import com.obscura.kit.network.UploadDeviceKeysRequest
+import obscura.client.v1.Client.ClientMessage
+
+/**
+ * Device announce, revocation, approve link, takeover.
+ */
+internal class DeviceManager(
+    private val ctx: ClientContext,
+    private val clientSyncManager: () -> ClientSyncManager,
+    private val announceDevicesCallback: suspend () -> Unit
+) {
+    private val session get() = ctx.session
+    private val api get() = ctx.api
+    private val signalStore get() = ctx.signalStore
+    private val messenger get() = ctx.messenger
+    private val friends get() = ctx.friends
+    private val devices get() = ctx.devices
+    private val messages get() = ctx.messages
+    private val messageSender get() = ctx.messageSender
+    suspend fun announceDevices() {
+        val ownDevices = devices.getOwnDevices()
+        val msg = ClientMessage.newBuilder()
+            .setTimestamp(System.currentTimeMillis())
+            .setDeviceAnnounce(obscura.client.v1.deviceAnnounce {
+                for (d in ownDevices) {
+                    this.devices.add(obscura.client.v1.deviceInfo {
+                        deviceUuid = d.deviceId; deviceId = d.deviceId; deviceName = d.deviceName
+                    })
+                }
+                timestamp = System.currentTimeMillis()
+                isRevocation = false
+            }).build()
+
+        for (friend in friends.getAccepted()) {
+            messageSender.sendToAllDevices(friend.userId, msg)
+        }
+    }
+
+    suspend fun announceDeviceRevocation(friendUsername: String, remainingDeviceIds: List<String>) {
+        val friendData = friends.getAccepted().find { it.username == friendUsername }
+            ?: throw com.obscura.kit.ObscuraError.NotFriends(friendUsername)
+
+        val msg = ClientMessage.newBuilder()
+            .setTimestamp(System.currentTimeMillis())
+            .setDeviceAnnounce(obscura.client.v1.deviceAnnounce {
+                for (devId in remainingDeviceIds) {
+                    devices.add(obscura.client.v1.deviceInfo {
+                        deviceUuid = devId; deviceId = devId; deviceName = "Device"
+                    })
+                }
+                timestamp = System.currentTimeMillis()
+                isRevocation = true
+                signature = com.google.protobuf.ByteString.copyFrom(ByteArray(64))
+            }).build()
+
+        messageSender.sendToAllDevices(friendData.userId, msg)
+    }
+
+    suspend fun revokeDevice(recoveryPhrase: String, targetDeviceId: String) {
+        api.deleteDevice(targetDeviceId)
+        messages.deleteByAuthorDevice(targetDeviceId)
+        signalStore.deleteAllSessions(targetDeviceId)
+
+        val remainingDeviceIds = devices.getOwnDevices()
+            .map { it.deviceId }
+            .filter { it != targetDeviceId }
+
+        val announceData = com.obscura.kit.crypto.RecoveryKeys.serializeAnnounceForSigning(
+            remainingDeviceIds, System.currentTimeMillis(), true
+        )
+        val signature = com.obscura.kit.crypto.RecoveryKeys.signWithPhrase(recoveryPhrase, announceData)
+        val recoveryPubKey = com.obscura.kit.crypto.RecoveryKeys.getPublicKey(recoveryPhrase)
+
+        val msg = ClientMessage.newBuilder()
+            .setTimestamp(System.currentTimeMillis())
+            .setDeviceAnnounce(obscura.client.v1.deviceAnnounce {
+                for (devId in remainingDeviceIds) {
+                    this.devices.add(obscura.client.v1.deviceInfo {
+                        deviceUuid = devId; deviceId = devId; deviceName = "Device"
+                    })
+                }
+                timestamp = System.currentTimeMillis()
+                isRevocation = true
+                this.signature = com.google.protobuf.ByteString.copyFrom(signature)
+                this.recoveryPublicKey = com.google.protobuf.ByteString.copyFrom(recoveryPubKey.serialize())
+            }).build()
+
+        for (friend in friends.getAccepted()) {
+            messageSender.sendToAllDevices(friend.userId, msg)
+        }
+    }
+
+    suspend fun approveLink(newDeviceId: String, challengeResponse: ByteArray) {
+        val identity = devices.getIdentity()
+
+        // Include the device being approved so the recipient can persist a complete own-device
+        // registry. Resolve its human name from the server before shipping the list.
+        val newDeviceName = try {
+            val serverDevices = api.listDevices()
+            (0 until serverDevices.length())
+                .map { serverDevices.getJSONObject(it) }
+                .firstOrNull { it.getString("deviceId") == newDeviceId }
+                ?.optString("name", "Device")
+        } catch (e: Exception) { null } ?: "Device"
+        devices.addOwnDevice(com.obscura.kit.stores.OwnDeviceData(
+            deviceId = newDeviceId,
+            deviceName = newDeviceName
+        ))
+
+        val ownDeviceList = devices.getOwnDevices()
+        val friendsExportStr = friends.exportAll()
+
+        val msg = ClientMessage.newBuilder()
+            .setTimestamp(System.currentTimeMillis())
+            .setDeviceLinkApproval(obscura.client.v1.deviceLinkApproval {
+                if (identity?.p2pPublicKey != null) {
+                    p2PPublicKey = com.google.protobuf.ByteString.copyFrom(identity.p2pPublicKey)
+                }
+                if (identity?.p2pPrivateKey != null) {
+                    p2PPrivateKey = com.google.protobuf.ByteString.copyFrom(identity.p2pPrivateKey)
+                }
+                if (identity?.recoveryPublicKey != null) {
+                    recoveryPublicKey = com.google.protobuf.ByteString.copyFrom(identity.recoveryPublicKey)
+                }
+                this.challengeResponse = com.google.protobuf.ByteString.copyFrom(challengeResponse)
+
+                for (d in ownDeviceList) {
+                    this.ownDevices.add(obscura.client.v1.deviceInfo {
+                        deviceUuid = d.deviceId; deviceId = d.deviceId; deviceName = d.deviceName
+                    })
+                }
+
+                friendsExport = com.google.protobuf.ByteString.copyFrom(friendsExportStr.toByteArray())
+            }).build()
+
+        // Ensure we can encrypt for the new device (fetch its prekey bundle)
+        if (messenger.deviceMap(newDeviceId) == null) {
+            messenger.fetchPreKeyBundles(requireNotNull(session.userId))
+        }
+        messenger.queueMessage(newDeviceId, msg, session.userId)
+        messenger.flushMessages()
+
+        clientSyncManager().pushHistoryToDevice(newDeviceId)
+        announceDevicesCallback()
+    }
+
+    suspend fun takeoverDevice() {
+        val (identityKeyPair, regId) = signalStore.generateIdentity()
+        session.registrationId = regId
+
+        val signedPreKey = SignalKeyUtils.generateSignedPreKey(signalStore, identityKeyPair, 1)
+        val oneTimePreKeys = SignalKeyUtils.generateOneTimePreKeys(signalStore, 1, 100)
+
+        api.uploadDeviceKeys(UploadDeviceKeysRequest(
+            identityKey = identityKeyPair.publicKey.serialize().toBase64(),
+            registrationId = regId,
+            signedPreKey = signedPreKey.toApiJson(),
+            oneTimePreKeys = oneTimePreKeys.toApiJson()
+        ))
+
+        // The identity key changed, so clear every device-UUID session and force fresh prekey
+        // exchanges on the next send.
+        for (friend in friends.getAccepted()) {
+            messenger.getDeviceIdsForUser(friend.userId).forEach { signalStore.deleteAllSessions(it) }
+        }
+
+        messenger.mapDevice(
+            requireNotNull(session.deviceId) { "deviceId not set - call register/login first" },
+            requireNotNull(session.userId) { "userId not set - call register/login first" },
+            regId
+        )
+    }
+}

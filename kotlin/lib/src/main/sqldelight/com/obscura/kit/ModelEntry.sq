@@ -1,0 +1,42 @@
+-- The app's entry store (`obscura-proto/KIT_API.md` §8.1). Read and written by `EntryStore.kt`.
+--
+-- `ttl_expires_at` is unused: EntryStore writes null and no query reads it. It remains for two
+-- platform constraints:
+--
+--   1. `ALTER TABLE ... DROP COLUMN` needs SQLite 3.35+. obscura-pix runs `AndroidSqliteDriver`
+--      against the SYSTEM SQLite with `minSdk 24`, and Android did not reach 3.35 until API 34
+--      (Android 14). The statement would throw on every older device, mid-migration.
+--   2. The portable alternative — create/copy/drop/rename — changes what `sqlite_master` stores:
+--      `ALTER TABLE ... RENAME TO` writes `CREATE TABLE "ModelEntry"`, with quotes, where a fresh
+--      install has `CREATE TABLE ModelEntry`. `SchemaMigrationTests.migrated schema is identical to
+--      a freshly created one` compares exactly that text and would fail. (Checked against SQLite
+--      3.50: `DROP COLUMN` is byte-identical to a fresh create, the rebuild is not.)
+--
+-- Swift can rebuild its equivalent table because it ships SQLite with GRDB/SQLCipher and compares
+-- schema object names rather than raw CREATE text.
+--
+-- `deleted` is active: EntryStore.delete sets it and selectByModel filters it. Swift hard-deletes;
+-- both implementations make the entry disappear from `all`.
+CREATE TABLE IF NOT EXISTS ModelEntry (
+    model_name TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    author_device_id TEXT NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    ttl_expires_at INTEGER,
+    PRIMARY KEY (model_name, entry_id)
+);
+
+selectByModel:
+SELECT * FROM ModelEntry WHERE model_name = ? AND deleted = 0;
+
+insertEntry:
+INSERT OR REPLACE INTO ModelEntry(model_name, entry_id, data, timestamp, author_device_id, deleted, ttl_expires_at)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+markDeleted:
+UPDATE ModelEntry SET deleted = 1, timestamp = ? WHERE model_name = ? AND entry_id = ?;
+
+deleteAllEntries:
+DELETE FROM ModelEntry;
