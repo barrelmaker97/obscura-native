@@ -24,9 +24,9 @@ let package = Package(
         // GRDB 6.29.3 + SQLCipher (CommonCrypto backend), maintained by DuckDuckGo.
         // 2.4.2-1 is their source-code release tag; 3.x jumps to GRDB 7.
         .package(url: "https://github.com/duckduckgo/GRDB.swift.git", exact: "2.4.2-1"),
-        // The repository package lives in a directory named `swift`, which
-        // otherwise collides with SwiftPM's inferred identity for this path.
-        .package(name: "LibSignalClient", path: "vendored/libsignal/swift"),
+        // dev.sh copies libsignal's `swift/` package to this uniquely named
+        // path; otherwise its inferred identity collides with this directory.
+        .package(name: "LibSignalClient", path: "vendored/LibSignalClient"),
     ],
     targets: [
         .target(
