@@ -1,0 +1,2392 @@
+import Foundation
+import GRDB
+import LibSignalClient
+import SwiftProtobuf
+#if os(iOS)
+import UIKit
+#endif
+
+// MARK: - Public Types
+
+public enum ConnectionState: String, Sendable {
+    case disconnected, connecting, connected, reconnecting
+}
+
+public enum AuthState: String, Sendable {
+    case loggedOut, authenticated, pendingApproval
+}
+
+/// Result of a login attempt — tells the app what to do next.
+public enum LoginScenario: Sendable {
+    case existingDevice       // Known device, session restored. Call connect().
+    case newDevice            // New device, needs link approval from existing device.
+    case onlyDevice           // Lost local data but no other devices exist. Re-provision directly, no linking.
+    case deviceMismatch       // DB exists but stored device doesn't match server. Re-provision needed.
+    case invalidCredentials   // Wrong password.
+    case userNotFound         // Username doesn't exist.
+}
+
+public struct ReceivedMessage: Sendable {
+    public let type: String  // app-facing message kind, e.g. "MODEL_SYNC"; "" if unset
+    public let text: String
+    public let username: String
+    public let accepted: Bool
+    public let sourceUserId: String
+    public let senderDeviceId: String?
+    public let timestamp: UInt64
+    public let rawBytes: Data
+    /// For MODEL_SYNC messages: the affected model name (e.g. "story", "profile").
+    /// nil for non-sync message types. Lets the bridge emit a model-accurate
+    /// `messageReceived` event instead of hardcoding "directMessage".
+    public let model: String?
+}
+
+private actor ProcessedEnvelopeTracker {
+    private var count: UInt64 = 0
+    private var lastProcessedAt = Date.distantPast
+
+    func snapshot() -> (count: UInt64, lastProcessedAt: Date) {
+        (count, lastProcessedAt)
+    }
+
+    func record() {
+        lastProcessedAt = Date()
+        count += 1
+    }
+}
+
+private actor PushDrainCoordinator {
+    private var nextID: UInt64 = 0
+    private var inFlight: (id: UInt64, task: Task<Int, Never>)?
+
+    func run(_ operation: @escaping () async -> Int) async -> Int {
+        if let existing = inFlight {
+            return await existing.task.value
+        }
+
+        nextID += 1
+        let id = nextID
+        let task = Task { await operation() }
+        inFlight = (id, task)
+
+        let result = await task.value
+        if inFlight?.id == id {
+            inFlight = nil
+        }
+        return result
+    }
+}
+
+// MARK: - ObscuraClient
+
+/// ObscuraClient — the unified facade.
+/// This is the public API that both SwiftUI views and XCTests call.
+/// All high-level operations live here. Views never touch messenger/gateway directly.
+public class ObscuraClient {
+
+    // MARK: - Domain Actors (always initialized, never nil)
+
+    public let api: APIClient
+    public let friends: FriendActor
+    public let messages: MessageActor
+    public let devices: DeviceActor
+    public let gateway: GatewayConnection
+
+    /// The durable inbox (`obscura-proto/KIT_API.md` §3), and the only place an inbound MODEL_SYNC
+    /// lands.
+    public let inbox: InboxStore
+
+    /// Raw storage for application entries (`obscura-proto/KIT_API.md` §8.1) — the other half of the
+    /// thin kit's app-facing surface. `inbox` is how messages arrive; this is where the app keeps
+    /// what it made of them.
+    ///
+    /// It stores and returns rows. It does not merge them, expire them, or decide who they go to —
+    /// the app owns all three (`obscura-proto/SPEC.md` §0.4).
+    public let entries: EntryStore
+
+    // Messenger is initialized after register/login with real keys
+    private var _messenger: MessengerActor?
+    public private(set) var persistentSignalStore: PersistentSignalStore?
+
+    /// Security logger — set your own implementation or use the default PrintLogger.
+    public var logger: ObscuraLogger = PrintLogger()
+
+    /// Session storage — kit persists session internally. Set before register/login.
+    public var sessionStorage: SessionStorage?
+
+    /// Fired whenever the access/refresh token is rotated by a refresh, so the
+    /// host can re-persist the session. Refresh tokens are single-use — without
+    /// re-persisting, a restored session uses a consumed refresh token and gets
+    /// a 401 (broadcasts fail, reconnect fails). See `refreshTokenNow()`.
+    public var onSessionChanged: (() -> Void)?
+
+    /// Attachment cache — decrypted bytes cached in the encrypted DB.
+    private var attachmentCache: AttachmentCache?
+
+    // MARK: - Observable State
+
+    private var _connectionState: ConnectionState = .disconnected {
+        didSet {
+            if _connectionState != oldValue {
+                for c in connectionContinuations { c.yield(_connectionState) }
+            }
+        }
+    }
+    private var _authState: AuthState = .loggedOut {
+        didSet {
+            if _authState != oldValue {
+                for c in authContinuations { c.yield(_authState) }
+                // Auto-persist session when authenticated
+                if _authState == .authenticated { persistSession() }
+            }
+        }
+    }
+
+    private var connectionContinuations: [AsyncStream<ConnectionState>.Continuation] = []
+    private var authContinuations: [AsyncStream<AuthState>.Continuation] = []
+
+    /// Connection state — current value
+    public var connectionState: ConnectionState { _connectionState }
+    public var authState: AuthState { _authState }
+
+    /// Observe connection state changes. Push-based, no polling.
+    public func observeConnectionState() -> AsyncStream<ConnectionState> {
+        AsyncStream { continuation in
+            continuation.yield(_connectionState)
+            connectionContinuations.append(continuation)
+            continuation.onTermination = { [weak self] _ in
+                self?.connectionContinuations.removeAll { $0 as AnyObject === continuation as AnyObject }
+            }
+        }
+    }
+
+    /// Observe auth state changes. Push-based, no polling.
+    public func observeAuthState() -> AsyncStream<AuthState> {
+        AsyncStream { continuation in
+            continuation.yield(_authState)
+            authContinuations.append(continuation)
+            continuation.onTermination = { [weak self] _ in
+                self?.authContinuations.removeAll { $0 as AnyObject === continuation as AnyObject }
+            }
+        }
+    }
+
+    private var authFailedContinuations: [AsyncStream<String>.Continuation] = []
+
+    /// Observe hard auth failures (token refresh exhausted its retry budget).
+    /// Distinct from `observeAuthState` going to `.loggedOut`: this is an event,
+    /// not a state, and carries a reason. Does not replay — only fires live.
+    public func observeAuthFailed() -> AsyncStream<String> {
+        AsyncStream { continuation in
+            authFailedContinuations.append(continuation)
+            continuation.onTermination = { [weak self] _ in
+                self?.authFailedContinuations.removeAll { $0 as AnyObject === continuation as AnyObject }
+            }
+        }
+    }
+
+    private func emitAuthFailed(_ reason: String) {
+        for c in authFailedContinuations { c.yield(reason) }
+    }
+
+    /// Buffered message queue for waitForMessage
+    private var messageQueue: [ReceivedMessage] = []
+    private let processedEnvelopes = ProcessedEnvelopeTracker()
+    private let pushDrainCoordinator = PushDrainCoordinator()
+
+    /// Events stream — every received message after routing (multi-observer)
+    private var eventContinuations: [AsyncStream<ReceivedMessage>.Continuation] = []
+
+    public func events() -> AsyncStream<ReceivedMessage> {
+        AsyncStream { continuation in
+            eventContinuations.append(continuation)
+            continuation.onTermination = { [weak self] _ in
+                self?.eventContinuations.removeAll { $0 as AnyObject === continuation as AnyObject }
+            }
+        }
+    }
+
+    private func emit(_ message: ReceivedMessage) {
+        // Push to stream subscribers
+        for c in eventContinuations { c.yield(message) }
+        // Push to queue — waitForMessage polls this
+        if messageQueue.count >= 1000 { messageQueue.removeFirst() }
+        messageQueue.append(message)
+    }
+
+    // MARK: - Auth State
+
+    public private(set) var token: String?
+    public private(set) var refreshToken: String?
+    public private(set) var userId: String?
+    public private(set) var username: String?
+    public private(set) var deviceId: String?
+    public private(set) var identityKeyPair: IdentityKeyPair?
+    public private(set) var registrationId: UInt32?
+
+    // Background tasks
+    private var envelopeTask: Task<Void, Never>?
+    private var tokenRefreshTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
+
+    // In-flight refresh dedup — see refreshTokenNow(). Lock-guarded because
+    // callers arrive from multiple concurrent tasks.
+    private let refreshLock = NSLock()
+    private var refreshInFlight: Task<Bool, Error>?
+
+    // Reconnection state (matches JS client)
+    private var shouldReconnect = false
+    private var reconnectAttempts = 0
+    private static let reconnectDelayMs: UInt64 = 1_000
+    private static let reconnectMaxDelayMs: UInt64 = 30_000
+    /// Keep the single reconnect retry inside the push path's tight OS time budget.
+    private static let pushDrainReconnectRetryNanos: UInt64 = 250_000_000
+    private static let pingIntervalSeconds: TimeInterval = 30
+
+    // Decrypt rate limiting: track failures per sender
+    private var decryptFailures: [String: (count: Int, windowStart: Date)] = [:]
+    private let maxDecryptFailures = 10
+    private let decryptFailureWindow: TimeInterval = 60
+
+    // Prekey replenishment (matches Kotlin pattern)
+    private let prekeyMinCount = 20
+    private let prekeyReplenishCount: UInt32 = 50
+
+    // Signal key generation constants (shared by register, loginAndProvision, takeoverDevice)
+    private static let initialPreKeyCount: UInt32 = 100
+    private static let maxRegistrationId: UInt32 = 16380
+    private static let signedPreKeyId: UInt32 = 1
+
+    // Token refresh buffer — refresh if expiring within this many seconds
+    private static let tokenExpiryBufferSeconds: Double = 60
+
+    // MARK: - Init
+
+    /// The shared database — nil for in-memory (tests), file-backed for production.
+    private let sharedDb: DatabaseQueue?
+
+    /// In-memory client (tests). All state lost on dealloc.
+    public init(apiURL: String, logger: ObscuraLogger = PrintLogger()) throws {
+        self.logger = logger
+        self.sharedDb = nil
+        self.api = APIClient(baseURL: apiURL)
+        self.friends = try FriendActor()
+        self.messages = try MessageActor()
+        self.devices = try DeviceActor()
+        self.inbox = try InboxStore(onDiscard: Self.discardLogger(logger))
+        self.entries = try EntryStore()
+        self.gateway = GatewayConnection(api: api, logger: logger)
+    }
+
+    /// File-backed client (production). All state persists to `dataDirectory/obscura.sqlite`.
+    /// On init, restores Signal identity from DB if one exists.
+    /// - Parameter keychainAccessGroup: shared keychain access group for the SQLCipher key. Pass
+    ///   `nil` (default) for today's behaviour. Required if a Notification Service Extension must
+    ///   open this database — see `obscura-proto/KIT_API.md` P2, and note the extension also needs
+    ///   `dataDirectory` to be an App Group container path, which is the caller's to supply.
+    public init(apiURL: String, dataDirectory: String, userId: String? = nil,
+                keychainAccessGroup: String? = nil, logger: ObscuraLogger = PrintLogger()) throws {
+        self.logger = logger
+
+        // Ensure directory exists with iOS Data Protection (encrypted at rest)
+        try FileManager.default.createDirectory(
+            atPath: dataDirectory, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+        )
+        let dbPath = (dataDirectory as NSString).appendingPathComponent("obscura.sqlite")
+
+        // SQLCipher encryption: per-user key from Keychain
+        var config = Configuration()
+        if let userId = userId {
+            let key = DatabaseSecret.getOrCreate(userId: userId, accessGroup: keychainAccessGroup)
+            config.prepareDatabase { db in
+                try db.usePassphrase(key)
+                try db.execute(sql: "PRAGMA kdf_iter = 1") // key is already 256-bit entropy
+                try db.execute(sql: "PRAGMA cipher_page_size = 4096")
+            }
+        }
+
+        let db = try DatabaseQueue(path: dbPath, configuration: config)
+        try db.write { db in try db.execute(sql: "PRAGMA secure_delete = ON") }
+
+        // Set file protection on the DB file itself
+        try FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: dbPath
+        )
+        self.sharedDb = db
+        self.attachmentCache = try? AttachmentCache(db: db)
+
+        self.api = APIClient(baseURL: apiURL)
+        self.friends = try FriendActor(db: db)
+        self.messages = try MessageActor(db: db)
+        self.devices = try DeviceActor(db: db)
+        self.inbox = try InboxStore(db: db, onDiscard: Self.discardLogger(logger))
+        self.entries = try EntryStore(db: db)
+        self.gateway = GatewayConnection(api: api, logger: logger)
+
+        // Restore Signal store from persisted DB if identity exists
+        let store = try PersistentSignalStore(db: db)
+        store.logger = logger
+        if store.hasPersistedIdentity {
+            self.persistentSignalStore = store
+            self.identityKeyPair = try store.identityKeyPair(context: NullContext())
+            self.registrationId = try store.localRegistrationId(context: NullContext())
+        }
+    }
+
+    deinit {
+        envelopeTask?.cancel()
+        tokenRefreshTask?.cancel()
+        removeForegroundObserver()
+        gateway.disconnectSync()
+    }
+
+    // MARK: - Session State
+
+    /// Quick check if authenticated (has token + userId)
+    public var hasSession: Bool { token != nil && userId != nil }
+
+    /// Restore a previously saved session without re-authenticating.
+    /// If a PersistentSignalStore exists (file-backed client), rebuilds the MessengerActor
+    /// so decrypt/encrypt work immediately. Call `connect()` after this.
+    public func restoreSession(token: String, refreshToken: String?, userId: String,
+                               deviceId: String?, username: String?, registrationId: UInt32 = 0) async {
+        self.token = token
+        self.refreshToken = refreshToken
+        self.userId = userId
+        self.deviceId = deviceId
+        self.username = username
+        await api.setToken(token)
+
+        // Rebuild messenger from persisted Signal store if available
+        if let store = persistentSignalStore, store.hasPersistedIdentity {
+            self.identityKeyPair = try? store.identityKeyPair(context: NullContext())
+            self.registrationId = (try? store.localRegistrationId(context: NullContext())) ?? registrationId
+            self._messenger = MessengerActor(api: api, store: store, ownUserId: userId)
+        } else {
+            self.registrationId = registrationId
+        }
+
+        if let deviceId = deviceId, let regId = self.registrationId {
+            await _messenger?.mapDevice(deviceId, userId: userId, registrationId: regId)
+        }
+        _authState = .authenticated
+    }
+
+    /// Ensure the current token is fresh; refresh if expiring within buffer.
+    /// Returns true if a valid token is available after the call.
+    @discardableResult
+    public func ensureFreshToken() async -> Bool {
+        guard let token = token else { return false }
+        guard let payload = APIClient.decodeJWT(token),
+              let exp = payload["exp"] as? Double else { return false }
+        let now = Date().timeIntervalSince1970
+        guard (exp - now) <= Self.tokenExpiryBufferSeconds else { return true }
+        do {
+            return try await refreshTokenNow()
+        } catch {
+            if Self.isCancellation(error) { return false }
+            logger.tokenRefreshFailed(attempt: 1, error: "\(error)")
+            return false
+        }
+    }
+
+    /// Refresh the access token using the (single-use) refresh token, update
+    /// both tokens, and fire `onSessionChanged` so the host can re-persist the
+    /// rotated refresh token. Returns false if there's no refresh token; throws
+    /// on API failure. Shared by `ensureFreshToken()` and the background
+    /// refresh loop so persistence-on-rotation happens on every path.
+    ///
+    /// Concurrent callers (background loop, reconnect, broadcast path) share a
+    /// single in-flight refresh — the refresh token is single-use, so two racing
+    /// refreshes mean the loser POSTs an already-consumed token and gets a 401.
+    /// Mirrors Kotlin's `refreshInProgress`. The refresh runs in its own Task,
+    /// so cancelling a caller mid-refresh doesn't tear down the HTTP request.
+    @discardableResult
+    internal func refreshTokenNow() async throws -> Bool {
+        return try await dedupedRefreshTask().value
+    }
+
+    /// Synchronous (lock-guarded) join-or-start for the shared refresh task.
+    private func dedupedRefreshTask() -> Task<Bool, Error> {
+        refreshLock.lock()
+        defer { refreshLock.unlock() }
+        if let existing = refreshInFlight { return existing }
+        let task = Task { [weak self] () throws -> Bool in
+            guard let self = self else { return false }
+            defer { self.clearRefreshInFlight() }
+            guard let rt = self.refreshToken else { return false }
+            let result = try await self.api.refreshSession(rt)
+            self.token = result.token
+            await self.api.setToken(result.token)
+            if let newRT = result.refreshToken { self.refreshToken = newRT }
+            self.onSessionChanged?()
+            return true
+        }
+        refreshInFlight = task
+        return task
+    }
+
+    private func clearRefreshInFlight() {
+        refreshLock.lock()
+        refreshInFlight = nil
+        refreshLock.unlock()
+    }
+
+    /// True when the error is a task/URLSession cancellation rather than a server
+    /// rejection. Reconnect cancels in-flight loops mid-request; that must not
+    /// be logged as a refresh failure or count toward the 3-strike logout.
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        let ns = error as NSError
+        return ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
+    }
+
+    /// Lightweight account registration — API call only, no Signal keys or DB.
+    /// Returns (token, refreshToken, userId) so the caller can create a user-scoped client.
+    public static func registerAccount(_ username: String, _ password: String, apiURL: String = "https://obscura.barrelmaker.dev") async throws -> (token: String, refreshToken: String?, userId: String) {
+        let api = APIClient(baseURL: apiURL)
+        let result = try await api.registerUser(username, password)
+        let userId = APIClient.extractUserId(result.token) ?? ""
+        return (token: result.token, refreshToken: result.refreshToken, userId: userId)
+    }
+
+    /// Lightweight login — API call only, returns credentials.
+    /// Pass deviceId to get a device-scoped token (required for messaging).
+    public static func loginAccount(_ username: String, _ password: String, deviceId: String? = nil, apiURL: String = "https://obscura.barrelmaker.dev") async throws -> (token: String, refreshToken: String?, userId: String) {
+        let api = APIClient(baseURL: apiURL)
+        let result = try await api.loginWithDevice(username, password, deviceId: deviceId)
+        let userId = APIClient.extractUserId(result.token) ?? ""
+        return (token: result.token, refreshToken: result.refreshToken, userId: userId)
+    }
+
+    // MARK: - Register
+
+    public func register(_ username: String, _ password: String) async throws {
+        // 1. Register user account
+        let result = try await api.registerUser(username, password)
+        let token = result.token
+
+        self.token = token
+        self.refreshToken = result.refreshToken
+        self.userId = APIClient.extractUserId(token)
+        self.username = username
+        await api.setToken(token)
+        await rateLimitDelay()
+
+        // 2. Generate Signal keys
+        let (identity, regId) = generateSignalIdentity()
+        let (spkPrivate, spkSig) = generateSignedPreKey(identity: identity)
+        let (otpKeys, preKeyRecords) = generateOneTimePreKeys()
+
+        // 3. Provision device
+        let deviceResult = try await api.provisionDevice(
+            name: "ObscuraKit-device",
+            identityKey: Data(identity.publicKey.serialize()).base64EncodedString(),
+            registrationId: Int(regId),
+            signedPreKey: SignedPreKeyUpload(
+                keyId: Int(Self.signedPreKeyId),
+                publicKey: Data(spkPrivate.publicKey.serialize()).base64EncodedString(),
+                signature: Data(spkSig).base64EncodedString()
+            ),
+            oneTimePreKeys: otpKeys
+        )
+
+        let deviceToken = deviceResult.token
+
+        self.token = deviceToken
+        // Use the DEVICE provision's refresh token, not the user-scoped one from
+        // registerUser above — refreshing a user-scoped token drops device scope
+        // and 403s the gateway. (Matches Kotlin `session.refreshToken = provResult.refreshToken`.)
+        self.refreshToken = deviceResult.refreshToken
+        self.deviceId = APIClient.extractDeviceId(deviceToken)
+        await api.setToken(deviceToken)
+
+        // 4. Persistent Signal protocol store (survives app restart)
+        let store = try initializeSignalStore(identity: identity, regId: regId, spkPrivate: spkPrivate, spkSig: spkSig, preKeyRecords: preKeyRecords)
+
+        // 5. Messenger
+        self._messenger = MessengerActor(api: api, store: store, ownUserId: self.userId!)
+
+        // Link approval and DeviceAnnounce require a complete own-device registry.
+        await recordOwnDevice(deviceName: "ObscuraKit-device",
+                              signalIdentityKey: Data(identity.publicKey.serialize()), registrationId: regId)
+
+        self._authState = .authenticated
+    }
+
+    /// Record this device in the own-device registry. `deviceUUID == deviceId` by convention;
+    /// insertion is idempotent.
+    private func recordOwnDevice(deviceName: String, signalIdentityKey: Data, registrationId: UInt32) async {
+        guard let did = self.deviceId else { return }
+        var device = OwnDevice(deviceUUID: did, deviceId: did, deviceName: deviceName)
+        device.signalIdentityKey = signalIdentityKey
+        device.registrationId = registrationId
+        await devices.addOwnDevice(device)
+    }
+
+    /// Provision the current device with Signal keys. Requires token + userId already set.
+    /// Used after registerAccount/loginAccount when the client was created with a user-scoped DB.
+    public func provisionCurrentDevice(deviceName: String = "ObscuraKit-device") async throws {
+        guard let _ = token, let userId = userId else {
+            throw NSError(domain: "ObscuraKit", code: 1, userInfo: [NSLocalizedDescriptionKey: "No auth token or userId set"])
+        }
+        await rateLimitDelay()
+
+        let (identity, regId) = generateSignalIdentity()
+        let (spkPrivate, spkSig) = generateSignedPreKey(identity: identity)
+        let (otpKeys, preKeyRecords) = generateOneTimePreKeys()
+
+        let deviceResult = try await api.provisionDevice(
+            name: deviceName,
+            identityKey: Data(identity.publicKey.serialize()).base64EncodedString(),
+            registrationId: Int(regId),
+            signedPreKey: SignedPreKeyUpload(
+                keyId: Int(Self.signedPreKeyId),
+                publicKey: Data(spkPrivate.publicKey.serialize()).base64EncodedString(),
+                signature: Data(spkSig).base64EncodedString()
+            ),
+            oneTimePreKeys: otpKeys
+        )
+
+        self.token = deviceResult.token
+        // Device-scoped refresh token (was left as the user-scoped one from the
+        // preceding registerAccount/loginAccount) — see register() for why.
+        self.refreshToken = deviceResult.refreshToken
+        self.deviceId = APIClient.extractDeviceId(deviceResult.token)
+        await api.setToken(deviceResult.token)
+
+        let store = try initializeSignalStore(identity: identity, regId: regId, spkPrivate: spkPrivate, spkSig: spkSig, preKeyRecords: preKeyRecords)
+        self._messenger = MessengerActor(api: api, store: store, ownUserId: userId)
+
+        // Keep the own-device registry complete for linking and announcements.
+        await recordOwnDevice(deviceName: deviceName,
+                              signalIdentityKey: Data(identity.publicKey.serialize()), registrationId: regId)
+
+        self._authState = .authenticated
+    }
+
+    // MARK: - Login
+
+    public func login(_ username: String, _ password: String, deviceId: String? = nil) async throws {
+        let result = try await api.loginWithDevice(username, password, deviceId: deviceId)
+        let token = result.token
+
+        self.token = token
+        self.refreshToken = result.refreshToken
+        self.userId = APIClient.extractUserId(token)
+        self.username = username
+        self.deviceId = APIClient.extractDeviceId(token) ?? deviceId
+        await api.setToken(token)
+        self._authState = .authenticated
+    }
+
+    /// Smart login — returns a scenario telling the app what to do next.
+    /// File-backed clients: checks for existing DB + stored device identity.
+    ///
+    /// ```swift
+    /// let scenario = try await client.loginSmart(username, password)
+    /// switch scenario {
+    /// case .existingDevice: try await client.connect()
+    /// case .newDevice:      // show link code screen
+    /// case .invalidCredentials: // show error
+    /// }
+    /// ```
+    public func loginSmart(_ username: String, _ password: String) async throws -> LoginScenario {
+        let storedIdentity = await devices.getIdentity()
+
+        // Device-first (Android parity): a local device logs in with one
+        // device-scoped session. A competing user-scoped session can make token
+        // refresh drift to the wrong scope and produce a gateway 403.
+        if let identity = storedIdentity, !identity.deviceId.isEmpty {
+            do {
+                let deviceResult = try await api.loginWithDevice(username, password, deviceId: identity.deviceId)
+                self.token = deviceResult.token
+                self.refreshToken = deviceResult.refreshToken
+                self.userId = APIClient.extractUserId(deviceResult.token)
+                self.deviceId = identity.deviceId
+                self.username = username
+                await api.setToken(deviceResult.token)
+
+                // Restore messenger from persisted Signal store
+                if let store = persistentSignalStore, store.hasPersistedIdentity {
+                    self.identityKeyPair = try? store.identityKeyPair(context: NullContext())
+                    self.registrationId = try? store.localRegistrationId(context: NullContext())
+                    self._messenger = MessengerActor(api: api, store: store, ownUserId: self.userId!)
+                    await _messenger?.mapDevice(identity.deviceId, userId: self.userId!, registrationId: self.registrationId ?? 0)
+                }
+                self._authState = .authenticated
+                return .existingDevice
+            } catch let error as APIClient.APIError {
+                // 404 → no such user. 401/403 → wrong password OR the device was
+                // revoked; fall through to a user-scoped login to distinguish.
+                if error.status == 404 { return .userNotFound }
+                if error.status != 401 && error.status != 403 { throw error }
+                await rateLimitDelay()
+            }
+        }
+
+        // No local device (or the device login was rejected) — user-scoped login
+        // to verify credentials and decide the scenario.
+        do {
+            let result = try await api.loginWithDevice(username, password, deviceId: nil)
+            self.token = result.token
+            self.refreshToken = result.refreshToken
+            self.userId = APIClient.extractUserId(result.token)
+            self.username = username
+            await api.setToken(result.token)
+        } catch let error as APIClient.APIError {
+            if error.status == 401 { return .invalidCredentials }
+            if error.status == 404 { return .userNotFound }
+            throw error
+        }
+
+        // Credentials valid. A local device that got rejected above means it was
+        // revoked → mismatch. Otherwise decide by the server's device count.
+        if let identity = storedIdentity, !identity.deviceId.isEmpty {
+            return .deviceMismatch
+        }
+
+        await rateLimitDelay()
+        let serverDevices = try await api.listDevices()
+        if serverDevices.count <= 1 {
+            // Only device (or none) — re-provision directly, no linking needed.
+            return .onlyDevice
+        } else {
+            // Multiple devices exist — need approval from an existing one.
+            self._authState = .pendingApproval
+            return .newDevice
+        }
+    }
+
+    // MARK: - Login + Provision (device linking)
+
+    /// Combined login + new device provisioning for device linking.
+    /// Logs in with user credentials, generates fresh Signal keys, provisions a new device.
+    public func loginAndProvision(_ username: String, _ password: String, deviceName: String = "Device 2") async throws {
+        self.username = username
+        let loginResult = try await api.loginWithDevice(username, password, deviceId: nil)
+        self.token = loginResult.token
+        self.userId = APIClient.extractUserId(loginResult.token)
+        await api.setToken(loginResult.token)
+        await rateLimitDelay()
+
+        let (identity, regId) = generateSignalIdentity()
+        let (spkPrivate, spkSig) = generateSignedPreKey(identity: identity)
+        let (otpKeys, preKeyRecords) = generateOneTimePreKeys()
+
+        let deviceResult = try await api.provisionDevice(
+            name: deviceName,
+            identityKey: Data(identity.publicKey.serialize()).base64EncodedString(),
+            registrationId: Int(regId),
+            signedPreKey: SignedPreKeyUpload(
+                keyId: Int(Self.signedPreKeyId),
+                publicKey: Data(spkPrivate.publicKey.serialize()).base64EncodedString(),
+                signature: Data(spkSig).base64EncodedString()
+            ),
+            oneTimePreKeys: otpKeys
+        )
+
+        self.token = deviceResult.token
+        self.refreshToken = deviceResult.refreshToken
+        self.deviceId = APIClient.extractDeviceId(deviceResult.token) ?? deviceResult.deviceId
+        await api.setToken(deviceResult.token)
+
+        let store = try initializeSignalStore(identity: identity, regId: regId, spkPrivate: spkPrivate, spkSig: spkSig, preKeyRecords: preKeyRecords)
+        self._messenger = MessengerActor(api: api, store: store, ownUserId: self.userId!)
+
+        await devices.storeIdentity(DeviceIdentity(
+            coreUsername: username, deviceId: self.deviceId ?? "", deviceUUID: self.deviceId ?? ""
+        ))
+
+        // Record the pending device locally; approval later reconciles the full account list.
+        await recordOwnDevice(deviceName: deviceName,
+                              signalIdentityKey: Data(identity.publicKey.serialize()), registrationId: regId)
+
+        _authState = .authenticated
+        await rateLimitDelay()
+    }
+
+    // MARK: - Connect (WebSocket + envelope loop + token refresh + auto-reconnect)
+
+    public func connect() async throws {
+        // DEBUG (flap diagnosis): trace overlapping connect() calls — two of these
+        // close together means foreground observer / reconnect / broadcast raced.
+        logger.log("[client] connect() begin state=\(_connectionState)")
+        // Cancel any existing loops (but not reconnectTask — it called us)
+        envelopeTask?.cancel()
+        envelopeTask = nil
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = nil
+
+        shouldReconnect = true
+        _connectionState = .connecting
+
+        // Listen for PreKeyStatus frames from server
+        await gateway.setOnPreKeyStatus { [weak self] count, threshold in
+            if count < threshold {
+                Task { [weak self] in await self?.replenishPreKeys() }
+            }
+        }
+
+        // Ensure fresh token before connecting
+        await ensureFreshToken()
+
+        try await gateway.connect()
+        _connectionState = .connected
+        reconnectAttempts = 0
+        persistSession() // save refreshed tokens on connect/reconnect
+        logger.log("gateway connected (messenger: \(_messenger != nil))")
+        startEnvelopeLoop()
+        startTokenRefresh()
+        startForegroundObserver()
+    }
+
+    #if os(iOS)
+    /// The one foreground observer's removal token. Held so teardown can remove it.
+    private var foregroundObserver: NSObjectProtocol?
+    #endif
+
+    /// Re-check connection when app returns to foreground.
+    /// Matches JS client's visibilitychange handler.
+    ///
+    /// Register exactly once and retain the removal token. The observer is lifecycle-scoped, not
+    /// connection-scoped.
+    private func startForegroundObserver() {
+        #if os(iOS)
+        guard foregroundObserver == nil else { return }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            Task {
+                if self.shouldReconnect && self._connectionState != .connected {
+                    self.logger.log("app foregrounded — reconnecting")
+                    await self.ensureFreshToken()
+                    try? await self.connect()
+                }
+            }
+        }
+        #endif
+    }
+
+    /// Balance ``startForegroundObserver()``. Idempotent.
+    private func removeForegroundObserver() {
+        #if os(iOS)
+        if let token = foregroundObserver {
+            NotificationCenter.default.removeObserver(token)
+            foregroundObserver = nil
+        }
+        #endif
+    }
+
+    /// Intentional disconnect — stops reconnection.
+    public func disconnect() {
+        shouldReconnect = false
+        removeForegroundObserver()
+        envelopeTask?.cancel()
+        envelopeTask = nil
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        gateway.disconnectSync()
+        _connectionState = .disconnected
+        messageQueue.removeAll()
+    }
+
+    // MARK: - Push Notifications
+
+    /// Register APNS/FCM push token with server. Requires device-scoped JWT.
+    /// Safe to call multiple times — server upserts by deviceId.
+    public func registerPushToken(_ token: String) async throws {
+        try await api.registerPushToken(token)
+    }
+
+    /// Drain queued envelopes after a silent push wake. Connects if needed, waits up to `timeout`
+    /// seconds (returning early when the receive path stays idle for 500ms), and returns the
+    /// number of successfully processed envelopes. Does NOT disconnect afterwards — the OS will freeze
+    /// the app when done.
+    ///
+    /// This observes successful receive-path persistence without consuming `messageQueue`.
+    /// The app owns notification classification; the kit treats model keys as opaque.
+    ///
+    /// Returns zero after both connection attempts fail, which is indistinguishable from a
+    /// successful drain that processed no envelopes. Connection failure is logged.
+    public func processPendingMessages(timeout: TimeInterval) async -> Int {
+        await pushDrainCoordinator.run { [weak self] in
+            guard let self else { return 0 }
+            return await self.performPendingMessageDrain(timeout: timeout)
+        }
+    }
+
+    private func performPendingMessageDrain(timeout: TimeInterval) async -> Int {
+        let processedAtStart = await processedEnvelopes.snapshot().count
+        logger.log("[push] drain start (timeout=\(Int(timeout))s, connected=\(_connectionState == .connected))")
+        if _connectionState != .connected {
+            // Retry one transient connection failure and log both attempts. The current Int return
+            // cannot distinguish "no envelopes" from "could not connect".
+            do { try await connect() } catch {
+                logger.log("[push] connect failed (attempt 1/2): \(error)")
+                try? await Task.sleep(nanoseconds: Self.pushDrainReconnectRetryNanos)
+                do { try await connect() } catch {
+                    logger.log("[push] drain ABORTED — could not connect after 2 attempts: \(error)")
+                    return 0
+                }
+            }
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        let idleThreshold: TimeInterval = 0.5
+        var lastActivityAt = Date()
+
+        while Date() < deadline {
+            let observedAt = await processedEnvelopes.snapshot().lastProcessedAt
+            if observedAt > lastActivityAt {
+                lastActivityAt = observedAt
+            }
+            if Date().timeIntervalSince(lastActivityAt) > idleThreshold {
+                break
+            } else {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
+
+        let processedAtEnd = await processedEnvelopes.snapshot().count
+        let processed = processedAtEnd >= processedAtStart ? processedAtEnd - processedAtStart : 0
+        let result = Int(min(processed, UInt64(Int.max)))
+        logger.log("[push] drain done: processed=\(result)")
+        return result
+    }
+
+    /// Schedule auto-reconnect with exponential backoff.
+    /// 1s → 2s → 4s → 8s → 16s → 30s cap. Matches JS client.
+    private func scheduleReconnect() {
+        guard shouldReconnect else { return }
+
+        let delay = min(
+            Self.reconnectDelayMs * (1 << UInt64(min(reconnectAttempts, 5))),
+            Self.reconnectMaxDelayMs
+        )
+        reconnectAttempts += 1
+        _connectionState = .reconnecting
+        logger.log("reconnecting in \(delay)ms (attempt \(reconnectAttempts))")
+
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delay * 1_000_000)
+            guard let self = self, self.shouldReconnect, !Task.isCancelled else { return }
+
+            do {
+                // Refresh token before reconnecting
+                await self.ensureFreshToken()
+                try await self.connect()
+                self.logger.log("reconnected after \(self.reconnectAttempts) attempts")
+            } catch {
+                // connect() failed — onClose in envelope loop will schedule next attempt
+                self.logger.log("reconnect failed: \(error.localizedDescription)")
+                self.scheduleReconnect()
+            }
+        }
+    }
+
+    // MARK: - High-Level Operations
+
+    /// Send a text message to an accepted friend. Throws if not friends.
+    public func send(to friendUserId: String, _ text: String) async throws {
+        _ = try requireMessenger()
+        guard await friends.isFriend(friendUserId) else {
+            throw ObscuraError.notFriends(friendUserId)
+        }
+        let timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+        let messageId = "msg_\(UUID().uuidString)"
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.text.text = text
+        msg.timestamp = timestamp
+
+        try await sendToAllDevices(friendUserId, msg)
+
+        // Persist locally
+        try await messages.add(friendUserId, Message(messageId: messageId, conversationId: friendUserId, timestamp: timestamp, content: text, isSent: true))
+
+        // SENT_SYNC to own devices
+        try await sendSentSync(conversationId: friendUserId, messageId: messageId, timestamp: timestamp, content: text)
+    }
+
+    /// Send a friend request. Stores the target with their username so the UI can display it.
+    ///
+    /// - Note: A second device does not learn about friends added after it was
+    ///   linked. It receives the friend graph only at link time through
+    ///   `SYNC_BLOB`; `DEVICE_LINK_APPROVAL` is not handled on receive.
+    public func befriend(_ targetUserId: String, username targetUsername: String) async throws {
+        _ = try requireMessenger()
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.friendRequest.username = username ?? ""
+        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        try await sendToAllDevices(targetUserId, msg)
+        try await friends.add(targetUserId, targetUsername, status: .pendingSent)
+    }
+
+    /// Accept a friend request. Updates status to accepted.
+    ///
+    /// - Note: no FRIEND_SYNC to own devices — see ``befriend(_:username:)``.
+    public func acceptFriend(_ targetUserId: String, username targetUsername: String) async throws {
+        _ = try requireMessenger()
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.friendResponse.username = username ?? ""
+        msg.friendResponse.accepted = true
+        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        try await sendToAllDevices(targetUserId, msg)
+        await friends.updateStatus(targetUserId, .accepted)
+    }
+
+    /// Send a MODEL_SYNC message to a friend (pass pre-serialized ClientMessage data)
+    public func sendRawMessage(to friendUserId: String, clientMessageData: Data) async throws {
+        let messenger = try requireMessenger()
+        let bundles = try await messenger.fetchPreKeyBundles(friendUserId)
+        await rateLimitDelay()
+
+        for bundle in bundles {
+            do {
+                try await messenger.processServerBundle(bundle, userId: friendUserId)
+            } catch {
+                logger.sessionEstablishFailed(userId: friendUserId, error: "\(error)")
+                continue
+            }
+            let targetDeviceId = bundle.deviceId
+            try await messenger.queueMessage(targetDeviceId: targetDeviceId, clientMessageData: clientMessageData, targetUserId: friendUserId)
+        }
+        _ = try await messenger.flushMessages()
+    }
+
+    /// Announce the current device list to all friends.
+    public func announceDevices() async throws {
+        let ownDevices = await devices.getOwnDevices()
+        var announce = Obscura_Client_V1_DeviceAnnounce()
+        announce.devices = ownDevices.map { dev in
+            var info = Obscura_Client_V1_DeviceInfo()
+            info.deviceID = dev.deviceId
+            info.deviceName = dev.deviceName
+            return info
+        }
+        announce.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.deviceAnnounce = announce
+
+        let accepted = await friends.getAccepted()
+        for friend in accepted {
+            try await sendToAllDevices(friend.userId, msg)
+        }
+    }
+
+    // MARK: - Session Reset
+
+    /// Delete all Signal sessions for a user and send SESSION_RESET message.
+    public func resetSessionWith(_ targetUserId: String, reason: String = "manual") async throws {
+        await clearSessionsWithUser(targetUserId)
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.sessionReset.reason = reason
+        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+        try await sendToAllDevices(targetUserId, msg)
+
+        // Delete the session that was just rebuilt to send the reset message.
+        // Forces next send to use a fresh PreKey exchange, which the receiver
+        // can handle after they also cleared their session.
+        await clearSessionsWithUser(targetUserId)
+    }
+
+    /// Signal sessions are keyed on peer device UUID, so clearing a user means clearing each of
+    /// that user's device sessions.
+    /// `deleteAllSessions(for:)` matches on the address-name prefix, so passing a device UUID here
+    /// deletes exactly that device's session. (Mirrors Kotlin ClientSyncManager.clearSessionsWithUser.)
+    private func clearSessionsWithUser(_ userId: String) async {
+        guard let messenger = _messenger else { return }
+        for deviceId in await messenger.getDeviceIdsForUser(userId) {
+            try? persistentSignalStore?.deleteAllSessions(for: deviceId)
+        }
+    }
+
+    /// Reset Signal sessions with all accepted friends.
+    public func resetAllSessions(reason: String = "manual") async throws {
+        for friend in await friends.getAccepted() {
+            try? await resetSessionWith(friend.userId, reason: reason)
+        }
+    }
+
+    // MARK: - Device Sync
+
+    /// Send history (friends + messages) as SYNC_BLOB to a specific device.
+    public func pushHistoryToDevice(_ targetDeviceId: String) async throws {
+        let messenger = try requireMessenger()
+        guard let uid = userId else { throw ObscuraError.notAuthenticated }
+
+        let friendsData = await friends.getAll()
+        let compressed = SyncBlobExporter.export(friends: friendsData)
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.syncBlob.compressedData = compressed
+        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        let msgData = try msg.serializedData()
+        try await messenger.queueMessage(targetDeviceId: targetDeviceId, clientMessageData: msgData, targetUserId: uid)
+        _ = try await messenger.flushMessages()
+    }
+
+    /// Approve a device link request — fetch bundles, send DEVICE_LINK_APPROVAL, push history, announce.
+    public func approveLink(newDeviceId: String, challengeResponse: Data) async throws {
+        let messenger = try requireMessenger()
+        guard let uid = userId else { throw ObscuraError.notAuthenticated }
+
+        // Fetch prekey bundles so we can encrypt to the new device
+        let bundles = try await messenger.fetchPreKeyBundles(uid)
+        await rateLimitDelay()
+        for bundle in bundles {
+            do {
+                try await messenger.processServerBundle(bundle, userId: uid)
+            } catch {
+                logger.sessionEstablishFailed(userId: uid, error: "\(error)")
+            }
+        }
+
+        let identity = await devices.getIdentity()
+        let ownDevices = await devices.getOwnDevices()
+        let friendsData = await friends.getAll()
+        let friendsExportData = SyncBlobExporter.export(friends: friendsData)
+
+        var approval = Obscura_Client_V1_DeviceLinkApproval()
+        if let pk = identity?.p2pPublicKey { approval.p2PPublicKey = pk }
+        if let sk = identity?.p2pPrivateKey { approval.p2PPrivateKey = sk }
+        if let rk = identity?.recoveryPublicKey { approval.recoveryPublicKey = rk }
+        approval.challengeResponse = challengeResponse
+        approval.ownDevices = ownDevices.map { d in
+            var info = Obscura_Client_V1_DeviceInfo()
+            info.deviceID = d.deviceId
+            info.deviceName = d.deviceName
+            return info
+        }
+        approval.friendsExport = friendsExportData
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.deviceLinkApproval = approval
+        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        let msgData = try msg.serializedData()
+        try await messenger.queueMessage(targetDeviceId: newDeviceId, clientMessageData: msgData, targetUserId: uid)
+        _ = try await messenger.flushMessages()
+
+        try await pushHistoryToDevice(newDeviceId)
+        try await announceDevices()
+    }
+
+    // MARK: - Device Linking (QR Code / Link Code)
+
+    /// Generate a link code for this device. Display as QR code or copyable text.
+    /// The new device calls this, the existing device scans/validates it.
+    public func generateLinkCode() -> String? {
+        guard let deviceId = deviceId,
+              let identityKeyPair = identityKeyPair else { return nil }
+        let deviceUUID = deviceId // Use deviceId as UUID for now
+        return DeviceLink.generateLinkCode(
+            deviceId: deviceId,
+            deviceUUID: deviceUUID,
+            signalIdentityKey: Data(identityKeyPair.publicKey.serialize())
+        )
+    }
+
+    /// Validate a link code and approve the device link.
+    /// The existing device calls this after scanning the QR code.
+    /// Validates the code, then sends DEVICE_LINK_APPROVAL + SYNC_BLOB + DEVICE_ANNOUNCE.
+    public func validateAndApproveLink(_ linkCodeString: String) async throws {
+        let result = DeviceLink.validateLinkCode(linkCodeString)
+
+        switch result {
+        case .valid(let code):
+            guard let challenge = DeviceLink.extractChallenge(code) else {
+                throw ObscuraError.deviceLinkFailed("invalid challenge in link code")
+            }
+
+            // Fetch prekey bundles for the new device so we can encrypt to it
+            let messenger = try requireMessenger()
+            let bundles = try await messenger.fetchPreKeyBundles(userId!)
+            await rateLimitDelay()
+
+            // Find the bundle for the new device
+            guard let newDeviceBundle = bundles.first(where: { $0.deviceId == code.deviceId }) else {
+                throw ObscuraError.deviceLinkFailed("no prekey bundle for device \(code.deviceId)")
+            }
+            try await messenger.processServerBundle(newDeviceBundle, userId: userId!)
+
+            // Add new device to own device list
+            let newDevice = OwnDevice(deviceUUID: code.deviceUUID, deviceId: code.deviceId, deviceName: code.deviceId)
+            await devices.addOwnDevice(newDevice)
+
+            // Approve: send DEVICE_LINK_APPROVAL + SYNC_BLOB + announce
+            try await approveLink(newDeviceId: code.deviceId, challengeResponse: challenge)
+
+        case .expired:
+            throw ObscuraError.deviceLinkFailed("link code expired")
+
+        case .invalid(let reason):
+            throw ObscuraError.deviceLinkFailed(reason)
+        }
+    }
+
+    /// Re-provision this device with a new identity key (device takeover).
+    public func takeoverDevice() async throws {
+        let (identity, regId) = generateSignalIdentity()
+        let (spkPrivate, spkSig) = generateSignedPreKey(identity: identity)
+        let (otpKeys, preKeyRecords) = generateOneTimePreKeys()
+
+        try await api.uploadDeviceKeys(
+            identityKey: Data(identity.publicKey.serialize()).base64EncodedString(),
+            registrationId: Int(regId),
+            signedPreKey: SignedPreKeyUpload(
+                keyId: Int(Self.signedPreKeyId),
+                publicKey: Data(spkPrivate.publicKey.serialize()).base64EncodedString(),
+                signature: Data(spkSig).base64EncodedString()
+            ),
+            oneTimePreKeys: otpKeys
+        )
+
+        // The identity key changed, so clear every device-UUID session and force fresh prekey
+        // exchanges on the next send.
+        for friend in await friends.getAccepted() {
+            await clearSessionsWithUser(friend.userId)
+        }
+
+        let store = try initializeSignalStore(identity: identity, regId: regId, spkPrivate: spkPrivate, spkSig: spkSig, preKeyRecords: preKeyRecords)
+        self._messenger = MessengerActor(api: api, store: store, ownUserId: self.userId!)
+
+        if let did = deviceId, let uid = userId {
+            await _messenger?.mapDevice(did, userId: uid, registrationId: regId)
+        }
+    }
+
+    // MARK: - Encrypted Attachments
+
+    /// Encrypt plaintext, upload ciphertext, send CONTENT_REFERENCE to friend. Throws if not friends.
+    public func sendEncryptedAttachment(to friendUserId: String, plaintext: Data, mimeType: String = "application/octet-stream") async throws {
+        guard await friends.isFriend(friendUserId) else { throw ObscuraError.notFriends(friendUserId) }
+        let encrypted = try AttachmentCrypto.encrypt(plaintext)
+        let result = try await api.uploadAttachment(encrypted.ciphertext)
+        await rateLimitDelay()
+        try await sendAttachment(
+            to: friendUserId, attachmentId: result.id,
+            contentKey: encrypted.contentKey, nonce: encrypted.nonce,
+            mimeType: mimeType, sizeBytes: encrypted.sizeBytes
+        )
+    }
+
+    /// Encrypt plaintext and upload the ciphertext, returning the reference triple.
+    /// Unlike `sendEncryptedAttachment`, this does NOT send a CONTENT_REFERENCE to a
+    /// friend — the caller embeds `{id, contentKey, nonce}` in a synced model entry
+    /// (e.g. a Pix or Story) whose sync carries the reference. Mirrors the Kotlin
+    /// `uploadAttachment` primitive; returns key material so the bridge needn't reach
+    /// into `AttachmentCrypto` directly. Pair with `downloadDecryptedAttachment`.
+    public func uploadAttachment(_ plaintext: Data) async throws -> (id: String, contentKey: Data, nonce: Data) {
+        let encrypted = try AttachmentCrypto.encrypt(plaintext)
+        let result = try await api.uploadAttachment(encrypted.ciphertext)
+        return (id: result.id, contentKey: encrypted.contentKey, nonce: encrypted.nonce)
+    }
+
+    /// Download ciphertext and decrypt with provided key material.
+    /// Checks in-DB cache first — returns instantly on hit.
+    public func downloadDecryptedAttachment(id: String, contentKey: Data, nonce: Data, expectedHash: Data? = nil) async throws -> Data {
+        // Cache hit — return immediately, zero network
+        if let cached = await attachmentCache?.get(id) {
+            return cached
+        }
+        // Cache miss — fetch, decrypt, cache
+        let ciphertext = try await api.fetchAttachment(id)
+        let plaintext = try AttachmentCrypto.decrypt(ciphertext, contentKey: contentKey, nonce: nonce, expectedHash: expectedHash)
+        await attachmentCache?.put(id, plaintext: plaintext)
+        return plaintext
+    }
+
+    /// Send a CONTENT_REFERENCE message to a friend (attachment already uploaded). Throws if not friends.
+    public func sendAttachment(to friendUserId: String, attachmentId: String, contentKey: Data, nonce: Data, mimeType: String, sizeBytes: Int) async throws {
+        guard await friends.isFriend(friendUserId) else { throw ObscuraError.notFriends(friendUserId) }
+        var ref = Obscura_Client_V1_ContentReference()
+        ref.attachmentID = attachmentId
+        ref.contentKey = contentKey
+        ref.nonce = nonce
+        ref.contentType = mimeType
+        ref.sizeBytes = UInt64(sizeBytes)
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.contentReference = ref
+        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+        try await sendToAllDevices(friendUserId, msg)
+    }
+
+    /// Send an application entry (`obscura-proto/KIT_API.md` §5) — the outbox half of the thin kit,
+    /// paired with ``inbox`` on the receive side and ``entries`` for local storage.
+    ///
+    /// **The caller names the recipients** (SPEC §0.4). The kit fans out to every device of every
+    /// listed userId, plus this user's own *other* devices, and makes **no delivery decision of its
+    /// own** — no audience resolution, no reading of `payload` to discover who it is for. That is the
+    /// difference from the compatibility
+    /// ``sendModelSync(to:model:entryId:op:data:)`` helper, which resolves one
+    /// friend. New integrations should use this explicit-audience operation.
+    ///
+    /// Two properties §5 asks to be proven rather than assumed, both pinned by Kotlin's
+    /// `EntrySendTests` and mirrored here:
+    ///
+    /// 1. **The sending device is excluded from its own fan-out.** `getOwnDevices()` includes this
+    ///    device, and a message encrypted to yourself is at best waste and at worst a duplicate the
+    ///    app must dedupe.
+    /// 2. **The sender gets no inbox row.** Nothing loops back locally, so the app writes its own
+    ///    outgoing entry to ``entries`` — one write path in the kit, two in the app.
+    ///
+    /// An empty `recipientUserIds` is legitimate and not an error: it means "my own devices only",
+    /// which is what a self-scoped model wants. Failing loud is for an audience the kit was asked to
+    /// *guess*, and here it never guesses.
+    public func send(
+        to recipientUserIds: [String],
+        modelKey: String,
+        entryId: String,
+        op: String = "CREATE",
+        sentAt: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000),
+        payload: Data
+    ) async throws {
+        var sync = Obscura_Client_V1_ModelSync()
+        sync.model = modelKey
+        sync.id = entryId
+        sync.op = WireCodec.encodeOp(op)
+        sync.timestamp = sentAt
+        sync.data = payload
+        sync.authorDeviceID = deviceId ?? ""
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.modelSync = sync
+
+        // Deduplicated because the app may legitimately name the same user twice — e.g. both
+        // participants of a canonical `userIdA_userIdB` conversation, one of whom is you.
+        var seen = Set<String>()
+        let targets = recipientUserIds.filter { $0 != userId && seen.insert($0).inserted }
+
+        // PER-RECIPIENT, not all-or-nothing. `sendToAllDevices` throws for a recipient with no
+        // registered devices, so letting the first failure escape would abandon recipients 2..N —
+        // and, worse, skip the own-device self-sync below, so the user's own other devices would
+        // silently never receive something they wrote. One unreachable friend must not cost the
+        // other four, or the sender's own copy.
+        var failures: [(String, Error)] = []
+        for recipient in targets {
+            do {
+                try await sendToAllDevices(recipient, msg)
+            } catch {
+                failures.append((recipient, error))
+                logger.log("SEND FAILED to \(recipient.prefix(8)) for \(modelKey)/\(entryId.prefix(20)): \(error)")
+            }
+        }
+
+        // Own OTHER devices. Runs whether or not a recipient failed — see above. The `!=` is
+        // §5 property 1: without it this device encrypts to itself.
+        let ownDevices = await devices.getOwnDevices().filter { $0.deviceId != self.deviceId }
+        if !ownDevices.isEmpty, let uid = userId {
+            let messenger = try requireMessenger()
+            let msgData = try msg.serializedData()
+            for device in ownDevices {
+                do {
+                    try await messenger.queueMessage(targetDeviceId: device.deviceId,
+                                                     clientMessageData: msgData, targetUserId: uid)
+                } catch {
+                    logger.log("self-sync failed for device \(device.deviceId): \(error)")
+                }
+            }
+            _ = try? await messenger.flushMessages()
+        }
+
+        // Throw only when NOBODY named got it. A partial failure is logged and survivable — the
+        // entry is stored, the other recipients have it, and the caller can retry. A total failure
+        // is different in kind: the app believes it sent something that reached no one, and it must
+        // be able to tell the user so.
+        if !targets.isEmpty && failures.count == targets.count {
+            throw ObscuraError.sendFailed(
+                "\(modelKey)/\(entryId.prefix(20)) reached none of its \(targets.count) recipient(s)")
+        }
+    }
+
+    // ── Ephemeral signals (typing, read receipts) ────────────────────────────────────────────
+    //
+    // modelKey is an opaque conversation namespace; the kit neither parses nor validates it.
+
+    /// Announce that this user is typing in a conversation.
+    ///
+    /// Throttled to at most once every 2s. Delivered to the conversation's participants only — never
+    /// broadcast; the audience comes from the canonical two-party `conversationId`, and a value that
+    /// does not name exactly two participants is dropped rather than widened.
+    public func sendTyping(modelKey: String, conversationId: String) async {
+        await sendSignalDirect(modelKey: modelKey, kind: "typing", conversationId: conversationId)
+    }
+
+    /// Explicitly stop typing.
+    public func stopTyping(modelKey: String, conversationId: String) async {
+        await sendSignalDirect(modelKey: modelKey, kind: "stoppedTyping", conversationId: conversationId)
+    }
+
+    /// Who is currently typing in a conversation, by display name.
+    ///
+    /// Auto-expires; a signal with no refresh disappears on its own, which is what makes signals
+    /// droppable (`KIT_API.md` §4) rather than something the inbox has to carry.
+    public nonisolated func observeTyping(modelKey: String, conversationId: String) -> SignalObservation {
+        SignalObservation(
+            store: SignalStoreRegistry.shared.store,
+            model: modelKey,
+            signal: SignalType.typing.rawValue,
+            data: ["conversationId": conversationId]
+        )
+    }
+
+    private func sendSignalDirect(modelKey: String, kind: String, conversationId: String) async {
+        if kind == "typing" {
+            let key = "typing:\(modelKey):\(conversationId)"
+            let now = Date()
+            if let last = SignalThrottle.shared.lastSent[key], now.timeIntervalSince(last) < 2.0 { return }
+            SignalThrottle.shared.lastSent[key] = now
+        }
+
+        var signal = Obscura_Client_V1_ModelSignal()
+        signal.model = modelKey
+        signal.kind = WireCodec.encodeSignalKind(kind)
+        signal.contextID = conversationId
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.modelSignal = signal
+        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+        guard let msgData = try? msg.serializedData() else { return }
+
+        // Fail CLOSED: a contextId that does not name exactly two participants sends NOTHING.
+        // Dropping an ephemeral typing indicator costs nothing; guessing its audience leaks the
+        // conversation.
+        let participants = conversationId.split(separator: "_").map(String.init).filter { !$0.isEmpty }
+        guard participants.count == 2 else {
+            logger.log("signal dropped: contextId is not a canonical two-party value — refusing to broadcast a 1:1 signal")
+            return
+        }
+        for participant in participants where participant != userId {
+            try? await sendRawMessage(to: participant, clientMessageData: msgData)
+        }
+    }
+
+    public func sendModelSync(to friendUserId: String, model: String, entryId: String, op: String = "CREATE", data: Data) async throws {
+        guard await friends.isFriend(friendUserId) else { throw ObscuraError.notFriends(friendUserId) }
+        var sync = Obscura_Client_V1_ModelSync()
+        sync.model = model
+        sync.id = entryId
+        sync.op = WireCodec.encodeOp(op)
+        sync.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+        sync.data = data
+        sync.authorDeviceID = deviceId ?? ""
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.modelSync = sync
+        try await sendToAllDevices(friendUserId, msg)
+    }
+
+    // MARK: - Query Helpers
+
+    /// Convenience: get messages for a conversation (delegates to MessageActor).
+    public func getMessages(_ conversationId: String, limit: Int = 50) async -> [Message] {
+        await messages.getMessages(conversationId, limit: limit)
+    }
+
+    /// Check if a backup exists on the server (HEAD request).
+    public func checkBackup() async throws -> (exists: Bool, etag: String?, size: Int?) {
+        try await api.checkBackup()
+    }
+
+    // MARK: - Facade (high-level methods for thin bridges)
+
+    /// Typed event for the unified event stream.
+    public enum ObscuraEvent {
+        case friendsUpdated([Friend])
+        case connectionChanged(ConnectionState)
+        case authChanged(AuthState)
+        case messageReceived(model: String, entryId: String)
+        case typingChanged(conversationId: String, typers: [String])
+        case authFailed(reason: String)
+        case debugLog(String)
+    }
+
+    /// Unified event stream — bridge subscribes once and relays all events.
+    public func observeEvents() -> AsyncStream<ObscuraEvent> {
+        AsyncStream { continuation in
+            // Friends
+            let friendTask = Task {
+                for await allFriends in friends.observeAll().values {
+                    continuation.yield(.friendsUpdated(allFriends))
+                }
+            }
+            // Connection
+            let connTask = Task {
+                for await state in observeConnectionState() {
+                    continuation.yield(.connectionChanged(state))
+                }
+            }
+            // Auth
+            let authTask = Task {
+                for await state in observeAuthState() {
+                    continuation.yield(.authChanged(state))
+                }
+            }
+            // Incoming messages — surface the real model name for MODEL_SYNC so
+            // story/profile/pix syncs re-query, not just directMessage.
+            let msgTask = Task {
+                for await event in events() {
+                    if event.type == "MODEL_SYNC" {
+                        continuation.yield(.messageReceived(model: event.model ?? "directMessage", entryId: ""))
+                    }
+                }
+            }
+            // Auth failure (token refresh exhausted) — distinct from a clean logout.
+            let authFailedTask = Task {
+                for await reason in observeAuthFailed() {
+                    continuation.yield(.authFailed(reason: reason))
+                }
+            }
+
+            continuation.onTermination = { _ in
+                friendTask.cancel()
+                connTask.cancel()
+                authTask.cancel()
+                msgTask.cancel()
+                authFailedTask.cancel()
+            }
+        }
+    }
+
+    /// Decode a friend code and send a friend request.
+    public func addFriendByCode(_ code: String) async throws {
+        let cleaned = code.replacingOccurrences(of: "\u{00AD}", with: "")
+        let decoded = try FriendCode.decode(cleaned)
+        try await befriend(decoded.userId, username: decoded.username)
+    }
+
+    /// Generate a shareable friend code for this user.
+    public func friendCode() -> String? {
+        guard let userId = userId, let username = username else { return nil }
+        return FriendCode.encode(userId: userId, username: username)
+    }
+
+    /// Full logout — handles ALL teardown. Bridge calls this one method.
+    public func fullLogout() async {
+        // Cancel all background tasks
+        envelopeTask?.cancel()
+        envelopeTask = nil
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        shouldReconnect = false
+        removeForegroundObserver()
+
+        // Disconnect
+        gateway.disconnectSync()
+
+        // Clear auth state
+        try? await api.clearToken()
+        token = nil
+        refreshToken = nil
+        userId = nil
+        username = nil
+        deviceId = nil
+        _messenger = nil
+        _connectionState = .disconnected
+        _authState = .loggedOut
+        messageQueue.removeAll()
+
+        // Clear persisted session
+        sessionStorage?.clear()
+        Task { await attachmentCache?.clearAll() }
+        logger.log("full logout complete")
+    }
+
+    /// Persist current session. Called internally after register, login, connect, reconnect.
+    public func persistSession() {
+        guard let token = token, let userId = userId else { return }
+        var data: [String: Any] = [
+            "token": token,
+            "refreshToken": refreshToken ?? "",
+            "userId": userId,
+            "deviceId": deviceId ?? "",
+            "username": username ?? "",
+            "registrationId": registrationId ?? 0,
+        ]
+        sessionStorage?.save(data)
+    }
+
+    /// Restore kit-owned session state from storage and connect. Application schemas are not part
+    /// of persisted kit state (SPEC §0.4).
+    public func restorePersistedSession() async throws {
+        guard let storage = sessionStorage, let saved = storage.load(),
+              let token = saved["token"] as? String, !token.isEmpty,
+              let userId = saved["userId"] as? String, !userId.isEmpty else {
+            throw ObscuraError.notAuthenticated
+        }
+
+        let regId = UInt32(saved["registrationId"] as? Int ?? 0)
+        await restoreSession(
+            token: token,
+            refreshToken: saved["refreshToken"] as? String,
+            userId: userId,
+            deviceId: saved["deviceId"] as? String,
+            username: saved["username"] as? String,
+            registrationId: regId
+        )
+
+        // Refresh token and connect
+        let fresh = await ensureFreshToken()
+        guard fresh else {
+            storage.clear()
+            throw ObscuraError.notAuthenticated
+        }
+
+        try await connect()
+        persistSession() // save refreshed tokens
+        logger.log("session restored from storage")
+    }
+
+    // MARK: - Recovery (Optional)
+    //
+    // BIP39 recovery is opt-in. If you never call generateRecoveryPhrase(), everything works
+    // without it — device linking, messaging, sync. The one feature that uses a recovery phrase is
+    // `announceRecovery()`, which signs a DEVICE_RECOVERY_ANNOUNCE with it.
+    //
+    // There is no remote device revocation. Delete a device server-side from a device you still
+    // hold.
+    //
+    // Device announce signature verification is trust-on-first-use: the peer's recovery public key
+    // is pinned from the first DEVICE_ANNOUNCE that carries one and verified against the stored copy
+    // thereafter (see `routeMessage`'s `.deviceAnnounce` arm).
+
+    /// Generate a 12-word recovery phrase. Store it securely.
+    /// Access via getRecoveryPhrase() which clears the in-memory copy after read.
+    private var _recoveryPhrase: String?
+
+    /// Read the recovery phrase exactly once, then wipe it from memory.
+    public func getRecoveryPhrase() -> String? {
+        let phrase = _recoveryPhrase
+        _recoveryPhrase = nil
+        return phrase
+    }
+
+    /// Generate a recovery phrase and hold it for exactly one ``getRecoveryPhrase()`` read.
+    ///
+    /// The derived public key is not cached because it is a pure function of the phrase.
+    public func generateRecoveryPhrase() -> String {
+        let phrase = RecoveryKeys.generatePhrase()
+        self._recoveryPhrase = phrase
+        return phrase
+    }
+
+    /// Announce recovery to all friends (new device replacing old ones).
+    public func announceRecovery(_ recoveryPhrase: String) async throws {
+        let timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+        let announceData = RecoveryKeys.serializeAnnounceForSigning(
+            deviceIds: [deviceId ?? ""], timestamp: timestamp, isRevocation: false
+        )
+        let signature = RecoveryKeys.sign(phrase: recoveryPhrase, data: announceData)
+        let recoveryPubKey = RecoveryKeys.getPublicKey(from: recoveryPhrase)
+
+        var announce = Obscura_Client_V1_DeviceRecoveryAnnounce()
+        var deviceInfo = Obscura_Client_V1_DeviceInfo()
+        deviceInfo.deviceID = deviceId ?? ""
+        announce.newDevices = [deviceInfo]
+        announce.timestamp = timestamp
+        announce.signature = signature
+        announce.isFullRecovery = true
+        announce.recoveryPublicKey = recoveryPubKey
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.deviceRecoveryAnnounce = announce
+
+        let accepted = await friends.getAccepted()
+        for friend in accepted {
+            try await sendToAllDevices(friend.userId, msg)
+        }
+    }
+
+    // MARK: - Backup
+
+    private var backupEtag: String?
+
+    /// Upload encrypted backup to server.
+    public func uploadBackup() async throws -> String? {
+        let friendsData = await friends.getAll()
+        let exportData = SyncBlobExporter.export(friends: friendsData)
+        let etag = try await api.uploadBackup(exportData, etag: backupEtag)
+        backupEtag = etag
+        return etag
+    }
+
+    /// Download backup from server.
+    public func downloadBackup() async throws -> Data? {
+        guard let result = try await api.downloadBackup(etag: backupEtag) else { return nil }
+        backupEtag = result.etag
+        return result.data
+    }
+
+    /// Wait for next incoming message. Uses buffered queue — messages processed by
+    /// the envelope loop are queued here, so timing doesn't matter.
+    public func waitForMessage(timeout: TimeInterval = 10) async throws -> ReceivedMessage {
+        // Check buffer first
+        if !messageQueue.isEmpty {
+            return messageQueue.removeFirst()
+        }
+
+        // Poll with short sleeps — avoids continuation leak that caused hangs
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !messageQueue.isEmpty {
+                return messageQueue.removeFirst()
+            }
+            try await Task.sleep(nanoseconds: 50_000_000) // 50ms poll
+        }
+        throw ObscuraError.timeout
+    }
+
+    // MARK: - Logout
+
+    /// Logout — clears credentials and disconnects. Data (friends, messages, Signal sessions) is preserved.
+    /// Call `restoreSession()` + `connect()` to resume, or `login()`/`loginAndProvision()` for a fresh session.
+    public func logout() async throws {
+        disconnect()
+        if let rt = refreshToken { try? await api.logout(rt) }
+        token = nil
+        refreshToken = nil
+        userId = nil
+        username = nil
+        deviceId = nil
+        _recoveryPhrase = nil
+        _messenger = nil
+        _authState = .loggedOut
+        await api.clearToken()
+    }
+
+    /// Nuclear wipe — clears ALL data from this device. Use for device revocation or account deletion.
+    /// After this, the device must re-register or loginAndProvision.
+    public func wipeDevice() async throws {
+        try await logout()
+        identityKeyPair = nil
+        registrationId = nil
+        persistentSignalStore?.clearAll()
+        persistentSignalStore = nil
+        await friends.clearAll()
+        await messages.clearAll()
+        await devices.clearAll()
+        // The §3.3 rule 2 carve-out, and the reason it is worded as a MUST: the inbox holds
+        // DECRYPTED plaintext — full payloads, the resolved sender name, the model key. A wipe that
+        // spared it would leave exactly the content a revocation is meant to destroy.
+        try? await inbox.wipe()
+    }
+
+    // MARK: - Internal: Send to all devices of a user
+
+    private func sendToAllDevices(_ targetUserId: String, _ msg: Obscura_Client_V1_ClientMessage, excludingDeviceId: String? = nil) async throws {
+        let messenger = try requireMessenger()
+        let bundles = try await messenger.fetchPreKeyBundles(targetUserId)
+        await rateLimitDelay()
+
+        let msgData = try msg.serializedData()
+        for bundle in bundles {
+            if let excluded = excludingDeviceId, bundle.deviceId == excluded { continue }
+            do {
+                try await messenger.processServerBundle(bundle, userId: targetUserId)
+            } catch {
+                logger.sessionEstablishFailed(userId: targetUserId, error: "\(error)")
+                continue
+            }
+            let targetDeviceId = bundle.deviceId
+            try await messenger.queueMessage(targetDeviceId: targetDeviceId, clientMessageData: msgData, targetUserId: targetUserId)
+        }
+        _ = try await messenger.flushMessages()
+    }
+
+    // MARK: - Internal: Envelope Loop
+
+    private func startEnvelopeLoop() {
+        envelopeTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self = self else { break }
+                do {
+                    let raw = try await self.gateway.waitForRawEnvelope(timeout: 30)
+                    await self.processEnvelope(raw)
+                } catch {
+                    if Task.isCancelled { break }
+                    if error is CancellationError { break }
+                    if let gwError = error as? GatewayConnection.GatewayError {
+                        if case .timeout = gwError { continue } // Normal idle timeout, keep looping
+                        if case .notConnected = gwError {
+                            // Connection dropped — trigger reconnect
+                            self._connectionState = .disconnected
+                            self.logger.log("gateway disconnected, scheduling reconnect")
+                            self.scheduleReconnect()
+                            break
+                        }
+                    }
+                    // Unknown error — also trigger reconnect
+                    self._connectionState = .disconnected
+                    self.logger.log("envelope loop error: \(error.localizedDescription)")
+                    self.scheduleReconnect()
+                    break
+                }
+            }
+        }
+    }
+
+    private func processEnvelope(_ raw: (id: Data, senderID: Data, senderDeviceID: Data, timestamp: UInt64, message: Data)) async {
+        guard let messenger = _messenger else { return }
+
+        let sourceUserId = bytesToUuid(raw.senderID)
+
+        // Rate limit: skip senders with too many recent decrypt failures
+        if let entry = decryptFailures[sourceUserId] {
+            if Date().timeIntervalSince(entry.windowStart) > decryptFailureWindow {
+                decryptFailures[sourceUserId] = nil // Reset window
+            } else if entry.count >= maxDecryptFailures {
+                return // Skip — rate limited
+            }
+        }
+
+        do {
+            // The server-stamped sender device UUID selects the pairwise inbound Signal session.
+            // Missing identity is an error, never a registration-id guess, and skips the ack.
+            guard raw.senderDeviceID.count == 16 else {
+                throw ObscuraError.provisionFailed(
+                    "Envelope from \(sourceUserId) has no sender_device_id (\(raw.senderDeviceID.count) bytes); cannot select an inbound session")
+            }
+            let senderDeviceId = bytesToUuid(raw.senderDeviceID)
+
+            let encMsg = try Obscura_Client_V1_EncryptedMessage(serializedData: raw.message)
+            let messageType = encMsg.type == .prekeyMessage ? 1 : 2
+
+            // Count only decrypt failures. Persistence faults are local and must not rate-limit a
+            // sender after storage becomes available again.
+            let plaintext: [UInt8]
+            do {
+                plaintext = try await messenger.decrypt(
+                    senderUserId: sourceUserId, senderDeviceUuid: senderDeviceId,
+                    content: encMsg.content, messageType: messageType
+                )
+            } catch {
+                let entry = decryptFailures[sourceUserId] ?? (count: 0, windowStart: Date())
+                decryptFailures[sourceUserId] = (count: entry.count + 1, windowStart: entry.windowStart)
+                throw error
+            }
+            let clientMsg = try Obscura_Client_V1_ClientMessage(serializedData: Data(plaintext))
+
+            // Route by message type. SPEC §0.9 rule 3+4: decrypt → persist → (notify) → ack.
+            // routeMessage now throws, so if durable persistence fails the error propagates to the
+            // catch below and we SKIP the ack — the message stays on the server for retry rather
+            // than being deleted un-persisted. authorDeviceId is the decrypting session's device
+            // UUID (== senderDeviceId, proven by the MAC), never the userId.
+            // `Envelope.id` is the inbox's DEDUPE KEY, so it gets the same length check
+            // `sender_device_id` already gets above — and for the same reason: SPEC §0.10 treats
+            // everything the relay stamps as untrusted.
+            //
+            // Without it, `bytesToUuid` falls back to raw hex for non-16-byte input, so an EMPTY id
+            // (proto3's default) becomes "" for every envelope. They would all hash to one key: the
+            // first inserts and is acked, and every one after is suppressed by INSERT OR IGNORE,
+            // reported as a duplicate, and ACKED — the server deleting messages never stored.
+            guard raw.id.count == 16 else {
+                throw ObscuraError.provisionFailed(
+                    "Envelope id is \(raw.id.count) bytes, expected 16; cannot use it as a dedupe key")
+            }
+            let isNew = try await routeMessage(
+                clientMsg, sourceUserId: sourceUserId, senderDeviceId: senderDeviceId,
+                envelopeId: bytesToUuid(raw.id)
+            )
+            await processedEnvelopes.record()
+
+            // Emit to event subscribers
+            let received = ReceivedMessage(
+                type: WireCodec.decodeMessageType(clientMsg.payload),
+                text: clientMsg.text.text,
+                username: {
+                    switch clientMsg.payload {
+                    case .friendRequest?: return clientMsg.friendRequest.username
+                    case .friendResponse?: return clientMsg.friendResponse.username
+                    default: return ""
+                    }
+                }(),
+                accepted: {
+                    if case .friendResponse? = clientMsg.payload { return clientMsg.friendResponse.accepted }
+                    return false
+                }(),
+                sourceUserId: sourceUserId,
+                senderDeviceId: senderDeviceId,
+                timestamp: clientMsg.timestamp,
+                rawBytes: Data(plaintext),
+                model: {
+                    if case .modelSync? = clientMsg.payload { return clientMsg.modelSync.model }
+                    return nil
+                }()
+            )
+            if isNew {
+                emit(received)
+            }
+
+            // Check prekey count (non-blocking, fire-and-forget)
+            checkAndReplenishPreKeys()
+
+            // Ack
+            do {
+                try await gateway.acknowledge([raw.id])
+            } catch {
+                logger.ackFailed(envelopeId: raw.id.map { String(format: "%02x", $0) }.joined(), error: "\(error)")
+            }
+        } catch {
+            // No ack — the message stays on the server (SPEC §0.9 rule 3). The rate-limit counter is
+            // NOT touched here; see the inner catch around `decrypt`.
+            logger.decryptFailed(sourceUserId: sourceUserId, error: "\(error)")
+        }
+    }
+
+    // MARK: - Internal: Message Routing
+
+    /// Persist a decrypted message, by class (`obscura-proto/KIT_API.md` §4).
+    ///
+    /// Called from the envelope loop **before** the ack, and it throws on a failed durable write so
+    /// the ack is skipped and the message survives on the server (SPEC §0.9 rule 3).
+    ///
+    /// `classify` decides what each arm may do; the switch routes only within
+    /// that policy.
+    private func routeMessage(
+        _ msg: Obscura_Client_V1_ClientMessage,
+        sourceUserId: String,
+        senderDeviceId: String,
+        envelopeId: String
+    ) async throws -> Bool {
+        NSLog("[ObscuraKit] routeMessage payload=%@ from=%@", WireCodec.decodeMessageType(msg.payload), String(sourceUserId.prefix(8)))
+
+        var isNew = true
+        switch classify(msg.payload) {
+        case .inboxed:
+            isNew = try await inboxMessage(
+                msg, sourceUserId: sourceUserId, senderDeviceId: senderDeviceId,
+                envelopeId: envelopeId)
+            // The inbox row is the delivery and has committed. MODEL_SYNC falls through only to
+            // clear ephemeral typing state after a real message arrives.
+            if case .modelSync? = msg.payload {} else { return isNew }
+
+        case .unimplemented:
+            // Diagnose and acknowledge declared unsupported arms so they cannot wedge the queue.
+            // DEVICE_RECOVERY_ANNOUNCE has a live sender in this kit.
+            logger.log("RECV UNIMPLEMENTED arm=\(WireCodec.decodeMessageType(msg.payload)) "
+                + "from=\(sourceUserId.prefix(8)) (dropped and acked — see KIT_API.md §4.2)")
+            return true
+
+        case .kitInternal, .droppable:
+            break // fall through to the handlers below
+        }
+
+        switch msg.payload {
+        case .friendRequest?:
+            // The payload username is a first-contact label only. A known peer cannot use another
+            // request to replace its locally trusted name or friendship status.
+            if let existing = await friends.getFriend(sourceUserId) {
+                // Known peer: the name comes from our graph now, never from their payload. Refresh
+                // the device list (that IS ours to learn — the sending device was just added to the
+                // messenger's map by decrypt) and change nothing else.
+                if let messenger = _messenger {
+                    let deviceIds = await messenger.getDeviceIdsForUser(sourceUserId)
+                    if !deviceIds.isEmpty {
+                        try await friends.updateDevices(
+                            sourceUserId,
+                            devices: deviceIds.map { ["deviceId": $0, "deviceName": ""] })
+                    }
+                }
+                logger.log("friend request from already-known peer \(sourceUserId) "
+                    + "(status=\(existing.status.rawValue)); keeping stored name and status")
+            } else {
+                try await friends.add(sourceUserId, msg.friendRequest.username, status: .pendingReceived)
+            }
+
+        case .friendResponse?:
+            // A response is valid only for a request we sent. Delivery alone must not let an
+            // authenticated stranger insert itself as an accepted friend.
+            if msg.friendResponse.accepted {
+                let existing = await friends.getFriend(sourceUserId)
+                if let existing, existing.status == .pendingSent {
+                    // Promote in place: updateStatus keeps the name WE recorded when we sent the
+                    // request. The payload username is not consulted (SPEC §0.5).
+                    await friends.updateStatus(sourceUserId, .accepted)
+                } else {
+                    logger.log("ignoring unsolicited FRIEND_RESPONSE from \(sourceUserId) "
+                        + "(local status=\(existing?.status.rawValue ?? "none"); expected pendingSent)")
+                }
+            }
+
+        case .text?:
+            let messageData = Message(
+                messageId: "msg_\(UUID().uuidString)",
+                conversationId: sourceUserId,
+                // CLAMPED, and the clamp is a crash fix before it is an ordering fix. `msg.timestamp`
+                // is peer-supplied proto3 `uint64` and `messages.add` binds it to an INTEGER column;
+                // GRDB binds `UInt64` through the NON-FAILABLE `Int64(self)`, which TRAPS above
+                // `Int64.max`. A trap is not catchable, so `processEnvelope`'s do/catch cannot
+                // contain it — the app dies. Any authenticated user can send a TEXT.
+                timestamp: clampFutureTimestamp(msg.timestamp),
+                content: msg.text.text,
+                isSent: false,
+                // Sending device UUID, proven by the session MAC.
+                authorDeviceId: senderDeviceId
+            )
+            try await messages.add(sourceUserId, messageData)
+
+        case .deviceAnnounce?:
+            let announce = msg.deviceAnnounce
+            let deviceInfos = announce.devices.map { dev -> [String: String] in
+                ["deviceId": dev.deviceID, "deviceName": dev.deviceName]
+            }
+            let deviceIds = announce.devices.map(\.deviceID)
+
+            // ── Trust on first use ───────────────────────────────────────────────────────────
+            //
+            // This check was DEAD BY CONSTRUCTION. `friends.recovery_public_key` was read here and
+            // written in exactly no place — neither `FriendActor.add` nor `updateDevices` touched
+            // the column and there was no setter — so the `if let` never fired and every
+            // DEVICE_ANNOUNCE from every sender was accepted unverified. That is what made the
+            // timestamp trap below remotely reachable by anyone who can deliver a message, which is
+            // anyone authenticated: friendship is not required to send.
+            //
+            // The key is now PINNED from the first announce that carries one, and verified against
+            // the STORED copy forever after. Verifying against `announce.recoveryPublicKey` —
+            // the key riding inside the very message being authenticated — would authenticate
+            // nothing at all, since the sender picks both halves; that is the defect the Kotlin kit
+            // has and is fixing separately. `client.proto` describes the field as "for friend to
+            // verify FUTURE revocation signatures": pinned, then used.
+            //
+            // A peer that has never sent a key is still accepted unverified. That is TOFU's
+            // premise, not an oversight — there is nothing to check against until a first key
+            // arrives, and refusing every announce until then would break device fan-out outright.
+            let pinnedKey = await friends.getFriend(sourceUserId)?.recoveryPublicKey
+            if let pinnedKey, !pinnedKey.isEmpty {
+                // Signed over the RAW wire timestamp, not the clamped one — the signature covers
+                // what the sender actually sent.
+                let signedPayload = RecoveryKeys.serializeAnnounceForSigning(
+                    deviceIds: deviceIds, timestamp: announce.timestamp, isRevocation: announce.isRevocation
+                )
+                guard RecoveryKeys.verify(publicKey: pinnedKey, data: signedPayload,
+                                          signature: announce.signature) else {
+                    logger.log("DEVICE_ANNOUNCE from \(sourceUserId.prefix(8)) does not verify "
+                        + "against the pinned recovery key — rejected")
+                    break
+                }
+            } else if !announce.recoveryPublicKey.isEmpty {
+                try await friends.pinRecoveryPublicKey(sourceUserId, announce.recoveryPublicKey)
+                logger.log("pinned recovery public key for \(sourceUserId.prefix(8)) "
+                    + "from its first DEVICE_ANNOUNCE (trust on first use)")
+            }
+
+            // CLAMPED. Two bugs at one site, both from binding a peer's `uint64` straight into
+            // SQLite. (1) `updateDevices` binds it THREE times and GRDB's `UInt64` binding is the
+            // non-failable `Int64(self)`, so anything above `Int64.max` TRAPS — uncatchable, so the
+            // do/catch in `processEnvelope` cannot save the process. (2) Even below that, a merely
+            // huge value is stored in `devices_updated_at`, and the LWW guard
+            // `WHERE devices_updated_at < ?` is then false forever: that peer's device list can
+            // never be updated again, so one friend with a broken clock permanently freezes their
+            // own fan-out. Clamping to now+60s fixes both.
+            try await friends.updateDevices(sourceUserId, devices: deviceInfos,
+                                            timestamp: clampFutureTimestamp(announce.timestamp))
+
+        case .modelSync?:
+            // Clear all typing indicators — a real message arrived. The entry itself is already in
+            // the inbox (see `.inboxed` above); this case exists only for the signal side effect.
+            await SignalStoreRegistry.shared.store.clearAll()
+
+        case .modelSignal?:
+            // Ephemeral signal — typed payload; identity comes from the authenticated
+            // envelope (sender from the decrypted session, display name from the friend
+            // graph), never from the payload.
+            let sig = msg.modelSignal
+            let signalName = WireCodec.decodeSignalKind(sig.kind)
+            if !sig.model.isEmpty, !signalName.isEmpty {
+                let username = await friends.getAccepted().first(where: { $0.userId == sourceUserId })?.username ?? sourceUserId
+                let payload = ModelSignalPayload(
+                    model: sig.model,
+                    signalRaw: signalName,
+                    conversationId: sig.contextID,
+                    senderUsername: username,
+                    // Sending device UUID, proven by the session MAC.
+                    authorDeviceId: senderDeviceId,
+                    timestamp: msg.timestamp
+                )
+                if signalName == "stoppedTyping" {
+                    await SignalStoreRegistry.shared.store.remove(
+                        model: sig.model, signal: "typing", data: payload.data, authorDeviceId: senderDeviceId)
+                } else {
+                    await SignalStoreRegistry.shared.store.receive(payload)
+                }
+            }
+
+        case .syncBlob?:
+            // Import state from linked device — only accept from own devices
+            guard sourceUserId == self.userId else { break }
+            if let parsed = SyncBlobExporter.parseExport(msg.syncBlob.compressedData) {
+                for f in parsed.friends {
+                    let status = FriendStatus(rawValue: f["status"] as? String ?? "") ?? .pendingSent
+                    try await friends.add(f["userId"] as? String ?? "", f["username"] as? String ?? "", status: status)
+                }
+                for m in parsed.messages {
+                    let message = Message(
+                        messageId: m["messageId"] as? String ?? UUID().uuidString,
+                        conversationId: m["conversationId"] as? String ?? "",
+                        content: m["content"] as? String ?? ""
+                    )
+                    try await messages.add(m["conversationId"] as? String ?? "", message)
+                }
+            }
+
+        case .sentSync?:
+            // Only accept sent sync from own devices. Swift has this self-guard and Kotlin does
+            // not — without it any authenticated stranger writes rows into any conversation of
+            // ours, marked `isSent: true`, i.e. attributed to us.
+            guard sourceUserId == self.userId else { break }
+            let ss = msg.sentSync
+            let messageData = Message(
+                messageId: ss.messageID,
+                conversationId: ss.recipientUsername,
+                // Clamped for the same reason as the TEXT arm: it is bound into an INTEGER column
+                // and GRDB's UInt64 binding traps above Int64.max. "Own device" is not "trusted
+                // clock" — a linked Android device stamps System.currentTimeMillis().
+                timestamp: clampFutureTimestamp(ss.timestamp),
+                content: String(data: ss.content, encoding: .utf8) ?? "",
+                isSent: true
+            )
+            try await messages.add(ss.recipientUsername, messageData)
+
+        case .sessionReset?:
+            // Sessions are keyed on device UUID, so reset every session for this user.
+            await clearSessionsWithUser(sourceUserId)
+
+        default:
+            // A kit-internal arm with no handler must NOT be acked — the ack would destroy the only
+            // copy of a message this kit is supposed to own. Kotlin throws here for the same reason.
+            //
+            // This guard catches a future arm classified kitInternal without a matching handler.
+            // Throwing leaves it on the server rather than acknowledging and destroying it.
+            throw ObscuraError.provisionFailed(
+                "\(WireCodec.decodeMessageType(msg.payload)) is classified kit-internal but this kit "
+                + "has no handler; refusing to ack it away")
+        }
+        return isNew
+    }
+
+    /// Write an inboxed payload to the durable inbox.
+    ///
+    /// Order matters: the inbox row commits before the caller acks. If it throws, nothing is acked
+    /// and the message stays on the server — which is the whole point of persist-then-ack and the
+    /// reason this is not an event stream.
+    ///
+    /// This is the only durable receive write for an application entry.
+    private func inboxMessage(
+        _ msg: Obscura_Client_V1_ClientMessage,
+        sourceUserId: String,
+        senderDeviceId: String,
+        envelopeId: String
+    ) async throws -> Bool {
+        var isModelSync = false
+        if case .modelSync? = msg.payload { isModelSync = true }
+        let sync = msg.modelSync
+
+        let inserted = try await inbox.put(
+            InboxRecord(
+                envelopeId: envelopeId,
+                // Must match Kotlin byte for byte — the app reads one `kind` column from two kits,
+                // and §4.1 has pix's drain BRANCH on it. WireCodec returns "" for an unset payload,
+                // which is a poor value for a NOT NULL column read across a bridge; both kits now
+                // share the UNKNOWN sentinel.
+                kind: WireCodec.decodeMessageType(msg.payload).isEmpty
+                    ? "UNKNOWN" : WireCodec.decodeMessageType(msg.payload),
+                receivedAt: UInt64(Date().timeIntervalSince1970 * 1000),
+                senderUserId: sourceUserId,
+                senderDeviceId: senderDeviceId,
+                // SPEC §0.5: the name comes from OUR friend graph, keyed on the authenticated
+                // sender, never from the payload. Nil when they are not a friend — §7 covers what
+                // the app should show then, and it is not a peer-chosen string.
+                senderDisplayName: await friends.getFriend(sourceUserId)?.username,
+                // ModelSync-derived, so nil for an unknown arm — there is nothing to derive from.
+                modelKey: isModelSync ? sync.model : nil,
+                entryId: isModelSync ? sync.id : nil,
+                // `WireCodec.decodeOp`, not the raw enum: the inbox is read by the app across a
+                // bridge, so this must be the app-facing CREATE/UPDATE/DELETE that §3.1 specifies.
+                // Interpolating the generated enum would give
+                // Swift's `opCreate` against Kotlin's `OP_CREATE` — one wire, two spellings.
+                op: isModelSync ? WireCodec.decodeOp(sync.op) : nil,
+                sentAt: isModelSync ? clampFutureTimestamp(sync.timestamp) : nil,
+                // Opaque bytes. For an unknown arm this is the whole serialized message, because the
+                // kit cannot know which sub-field would have been the payload.
+                payload: isModelSync ? sync.data : ((try? msg.serializedData()) ?? Data())
+            )
+        )
+
+        if !inserted {
+            // A redelivered envelope. Not an error: persist-then-ack guarantees this happens, and
+            // absorbing it here is what keeps depth() and the app's counts honest. Still ack.
+            logger.log("RECV DUPLICATE envelope=\(envelopeId.prefix(12)) "
+                + "kind=\(WireCodec.decodeMessageType(msg.payload)) (already inboxed)")
+        }
+        return inserted
+    }
+
+    /// SPEC §2.4: a peer-supplied timestamp is clamped before it is stored, not after.
+    ///
+    /// Two distinct failures, one clamp. Apply it at **every** site that takes a `uint64` off the
+    /// wire and puts it in the database:
+    ///
+    /// 1. **It is a crash fix.** GRDB binds `UInt64` through the NON-FAILABLE `Int64(self)` (see
+    ///    `GRDB/Core/Support/StandardLibrary/StandardLibrary.swift`), so any value above
+    ///    `Int64.max` TRAPS. A Swift trap is not catchable, so `processEnvelope`'s do/catch cannot
+    ///    contain it: the process dies. Any authenticated user can deliver a message — friendship
+    ///    is not required — so this is a remote kill with no privileges. The same bug class was
+    ///    fixed once in `Wire/ModelSignal.swift`; the sweep stopped at that one call site.
+    /// 2. **It is an ordering fix.** Without it a peer sets a timestamp far in the future and wins
+    ///    every LWW/REPLACE conflict forever — a tie-break can only order writes it can compare
+    ///    honestly. On `friends.devices_updated_at` this is permanent: the guard
+    ///    `WHERE devices_updated_at < ?` never passes again.
+    ///
+    /// Clamping toward now rather than rejecting matches what `ModelSignal.receive` does with the
+    /// same untrusted value, and keeps a peer whose clock is a few seconds fast working normally.
+    private func clampFutureTimestamp(_ sentAt: UInt64) -> UInt64 {
+        min(sentAt, UInt64(Date().timeIntervalSince1970 * 1000) + 60_000)
+    }
+
+    /// A discard is data loss the app chose deliberately, and §3.3 rule 5 requires it be logged as a
+    /// security-relevant event rather than being the quiet path.
+    ///
+    /// - Note: the hook is passed at construction rather than set afterwards. A detached
+    ///   `Task { await inbox.setOnDiscard … }` from the initializer leaves a window in which the
+    ///   store is reachable with no hook, and a `discard` in that window is data loss with no record
+    ///   — precisely the quiet path rule 5 forbids.
+    private static func discardLogger(_ logger: ObscuraLogger) -> @Sendable ([Int64], String) -> Void {
+        { ids, reason in
+            logger.log("INBOX DISCARD \(ids.count) row(s) reason=\"\(reason)\" ids=\(ids)")
+        }
+    }
+
+    // MARK: - Internal: SENT_SYNC
+
+    private func sendSentSync(conversationId: String, messageId: String, timestamp: UInt64, content: String) async throws {
+        let ownDevices = await devices.getOwnDevices()
+
+        var syncMsg = Obscura_Client_V1_ClientMessage()
+        var payload = Obscura_Client_V1_SentSync()
+        payload.recipientUsername = conversationId
+        payload.messageID = messageId
+        payload.timestamp = timestamp
+        payload.content = Data(content.utf8)
+        syncMsg.sentSync = payload
+
+        // Send only when another own device can receive the sync.
+        guard ownDevices.contains(where: { $0.deviceId != self.deviceId }) else { return }
+        do {
+            try await sendToAllDevices(self.userId!, syncMsg, excludingDeviceId: self.deviceId)
+        } catch {
+            logger.sessionEstablishFailed(userId: self.userId ?? "unknown", error: "sentSync: \(error)")
+        }
+    }
+
+    // MARK: - Internal: Prekey Replenishment (matches Kotlin pattern)
+
+    private func checkAndReplenishPreKeys() {
+        Task { [weak self] in
+            guard let self = self,
+                  let store = self.persistentSignalStore,
+                  store.getPreKeyCount() < self.prekeyMinCount else { return }
+            await self.replenishPreKeys()
+        }
+    }
+
+    private func replenishPreKeys() async {
+        guard let store = persistentSignalStore, let identity = identityKeyPair else { return }
+        do {
+            let highestId = store.getHighestPreKeyId()
+            var newKeys: [PreKeyUpload] = []
+
+            for i: UInt32 in 1...prekeyReplenishCount {
+                let keyId = highestId + i
+                let pk = PrivateKey.generate()
+                newKeys.append(PreKeyUpload(
+                    keyId: Int(keyId),
+                    publicKey: Data(pk.publicKey.serialize()).base64EncodedString()
+                ))
+                try store.storePreKey(
+                    PreKeyRecord(id: keyId, publicKey: pk.publicKey, privateKey: pk),
+                    id: keyId, context: NullContext()
+                )
+            }
+
+            // Reuse existing signed prekey — don't generate a new one
+            let existingSpk = try store.loadSignedPreKey(id: 1, context: NullContext())
+
+            try await api.uploadDeviceKeys(
+                identityKey: Data(identity.publicKey.serialize()).base64EncodedString(),
+                registrationId: Int(registrationId ?? 0),
+                signedPreKey: SignedPreKeyUpload(
+                    keyId: 1,
+                    publicKey: Data(existingSpk.publicKey.serialize()).base64EncodedString(),
+                    signature: Data(existingSpk.signature).base64EncodedString()
+                ),
+                oneTimePreKeys: newKeys
+            )
+        } catch {
+            logger.sessionEstablishFailed(userId: userId ?? "unknown", error: "prekey replenish: \(error)")
+        }
+    }
+
+    // MARK: - Internal: Token Refresh
+
+    private func startTokenRefresh() {
+        tokenRefreshTask = Task { [weak self] in
+            var consecutiveFailures = 0
+            while !Task.isCancelled {
+                guard let self = self, let token = self.token else {
+                    try? await Task.sleep(nanoseconds: 30_000_000_000)
+                    continue
+                }
+
+                let delayMs = self.getTokenRefreshDelay(token)
+                try? await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+
+                if self.refreshToken != nil {
+                    do {
+                        _ = try await self.refreshTokenNow()
+                        consecutiveFailures = 0
+                    } catch {
+                        if Self.isCancellation(error) { continue }
+                        consecutiveFailures += 1
+                        self.logger.tokenRefreshFailed(attempt: consecutiveFailures, error: "\(error)")
+                        if consecutiveFailures >= 3 {
+                            self.emitAuthFailed("token refresh failed after \(consecutiveFailures) attempts: \(error)")
+                            self._authState = .loggedOut
+                            break
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func getTokenRefreshDelay(_ token: String) -> UInt64 {
+        guard let payload = APIClient.decodeJWT(token),
+              let exp = payload["exp"] as? Double else { return 30000 }
+        let now = Date().timeIntervalSince1970
+        let ttl = exp - now
+        let delay = max(ttl * 0.8, 5) * 1000
+        return UInt64(delay)
+    }
+
+    // MARK: - Helpers
+
+    private func requireMessenger() throws -> MessengerActor {
+        guard let m = _messenger else { throw ObscuraError.noMessenger }
+        return m
+    }
+
+    /// Generate a fresh Signal identity keypair + registration ID. Stores on self.
+    private func generateSignalIdentity() -> (IdentityKeyPair, UInt32) {
+        let identity = IdentityKeyPair.generate()
+        let regId = UInt32.random(in: 1...Self.maxRegistrationId)
+        self.identityKeyPair = identity
+        self.registrationId = regId
+        return (identity, regId)
+    }
+
+    /// Generate a signed pre-key from the given identity.
+    private func generateSignedPreKey(identity: IdentityKeyPair) -> (privateKey: PrivateKey, signature: [UInt8]) {
+        let spkPrivate = PrivateKey.generate()
+        let spkSig = identity.privateKey.generateSignature(message: spkPrivate.publicKey.serialize())
+        return (spkPrivate, spkSig)
+    }
+
+    /// Generate one-time pre-keys for upload + local storage.
+    private func generateOneTimePreKeys() -> (uploads: [PreKeyUpload], records: [(id: UInt32, privateKey: PrivateKey)]) {
+        var uploads: [PreKeyUpload] = []
+        var records: [(id: UInt32, privateKey: PrivateKey)] = []
+        for i: UInt32 in 1...Self.initialPreKeyCount {
+            let pk = PrivateKey.generate()
+            uploads.append(PreKeyUpload(keyId: Int(i), publicKey: Data(pk.publicKey.serialize()).base64EncodedString()))
+            records.append((id: i, privateKey: pk))
+        }
+        return (uploads, records)
+    }
+
+    /// Create and populate a PersistentSignalStore with identity + keys.
+    private func initializeSignalStore(identity: IdentityKeyPair, regId: UInt32,
+                                       spkPrivate: PrivateKey, spkSig: [UInt8],
+                                       preKeyRecords: [(id: UInt32, privateKey: PrivateKey)]) throws -> PersistentSignalStore {
+        let store = try sharedDb.map { try PersistentSignalStore(db: $0) } ?? PersistentSignalStore()
+        store.logger = self.logger
+        store.initialize(keyPair: identity, registrationId: regId)
+        try store.storeSignedPreKey(
+            SignedPreKeyRecord(id: Self.signedPreKeyId, timestamp: UInt64(Date().timeIntervalSince1970), privateKey: spkPrivate, signature: spkSig),
+            id: Self.signedPreKeyId, context: NullContext()
+        )
+        for record in preKeyRecords {
+            try store.storePreKey(
+                PreKeyRecord(id: record.id, publicKey: record.privateKey.publicKey, privateKey: record.privateKey),
+                id: record.id, context: NullContext()
+            )
+        }
+        self.persistentSignalStore = store
+        return store
+    }
+
+    private func bytesToUuid(_ data: Data) -> String {
+        guard data.count == 16 else { return data.map { String(format: "%02x", $0) }.joined() }
+        let hex = data.map { String(format: "%02x", $0) }.joined()
+        let i = hex.startIndex
+        return "\(hex[i..<hex.index(i, offsetBy: 8)])-\(hex[hex.index(i, offsetBy: 8)..<hex.index(i, offsetBy: 12)])-\(hex[hex.index(i, offsetBy: 12)..<hex.index(i, offsetBy: 16)])-\(hex[hex.index(i, offsetBy: 16)..<hex.index(i, offsetBy: 20)])-\(hex[hex.index(i, offsetBy: 20)..<hex.index(i, offsetBy: 32)])"
+    }
+
+    /// Errors surfaced by the current public kit API.
+    public enum ObscuraError: Error, LocalizedError {
+        case notAuthenticated
+        case provisionFailed(String)
+        case noMessenger
+        case timeout
+        case notFriends(String)
+        case deviceLinkFailed(String)
+        /// A `send` reached none of its named recipients. Distinct from a PARTIAL failure, which is
+        /// logged and survivable — this one means the app believes it sent something that got
+        /// nowhere. Matches Kotlin's `ObscuraError.SendFailed` and the bridge's `SEND_FAILED`.
+        case sendFailed(String)
+
+        /// Stable, machine-readable code for cross-boundary propagation (mirrors
+        /// Kotlin `ObscuraError.code`). The bridge rejects promises with this so JS
+        /// can branch on *what* failed rather than parse the message.
+        public var code: String {
+            switch self {
+            case .notAuthenticated: return "NOT_AUTHENTICATED"
+            case .provisionFailed: return "NOT_PROVISIONED"
+            case .noMessenger: return "NO_MESSENGER"
+            case .timeout: return "TIMEOUT"
+            case .notFriends: return "NOT_FRIENDS"
+            case .deviceLinkFailed: return "DEVICE_LINK_FAILED"
+            case .sendFailed: return "SEND_FAILED"
+            }
+        }
+
+        public var errorDescription: String? {
+            switch self {
+            case .notAuthenticated: return "Not authenticated"
+            case .provisionFailed(let msg): return "Device provisioning failed: \(msg)"
+            case .noMessenger: return "Messenger not initialized (call register first)"
+            case .timeout: return "Operation timed out"
+            case .notFriends(let userId): return "Not friends with \(userId)"
+            case .deviceLinkFailed(let reason): return "Device link failed: \(reason)"
+            case .sendFailed(let msg): return "Send failed: \(msg)"
+            }
+        }
+    }
+}
