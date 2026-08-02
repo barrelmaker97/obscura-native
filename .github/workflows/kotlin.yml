@@ -2,18 +2,8 @@ name: Kotlin
 
 on:
   pull_request:
-    paths:
-      - kotlin/**
-      - proto
-      - .gitmodules
-      - .github/workflows/kotlin.yml
   push:
     branches: [main]
-    paths:
-      - kotlin/**
-      - proto
-      - .gitmodules
-      - .github/workflows/kotlin.yml
 
 concurrency:
   group: kotlin-${{ github.ref }}
