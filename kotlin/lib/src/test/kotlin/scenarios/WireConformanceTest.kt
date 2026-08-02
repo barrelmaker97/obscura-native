@@ -12,7 +12,7 @@ import java.io.File
 
 /**
  * Vector-driven L3 wire conformance, consuming the shared
- * `proto/conformance/wire.json` (see obscura-proto SPEC §3). Every kit runs the
+ * `protocol/conformance/wire.json` (see NATIVE_CONTRACT §3). Both platforms run the
  * same file.
  *
  * Pins the enum <-> app-facing-form mappings introduced by the v2 client.proto
@@ -96,14 +96,14 @@ class WireConformanceTest {
 
     private fun loadVectors(name: String): JSONObject {
         val candidates = listOf(
-            "../../proto/conformance/$name",
-            "../proto/conformance/$name",
-            "proto/conformance/$name",
+            "../../protocol/conformance/$name",
+            "../protocol/conformance/$name",
+            "protocol/conformance/$name",
         )
         val file = candidates.map(::File).firstOrNull { it.exists() }
             ?: error(
                 "conformance vector '$name' not found (looked in: ${candidates.joinToString()}). " +
-                    "Is the obscura-proto submodule checked out? Run: git submodule update --init",
+                    "Is protocol/conformance present in the repository checkout?",
             )
         return JSONObject(file.readText())
     }

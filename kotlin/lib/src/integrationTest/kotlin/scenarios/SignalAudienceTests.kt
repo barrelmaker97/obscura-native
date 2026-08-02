@@ -73,7 +73,7 @@ class SignalAudienceTests {
         becomeFriends(alice, bob)
 
 
-        // Not a canonical two-party id. `SPEC.md` §1.2 says fail loud rather
+        // Not a canonical two-party id. `NATIVE_CONTRACT.md` §1.2 says fail closed rather
         // than guess an audience, and for an ephemeral signal the
         // correct failure is to send nothing — dropping a typing indicator costs nothing,
         // guessing its audience leaks the conversation.

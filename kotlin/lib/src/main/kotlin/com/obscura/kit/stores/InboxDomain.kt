@@ -6,7 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * One drained inbox row, as the app sees it (`obscura-proto/KIT_API.md` §3.1).
+ * One drained inbox row, as the app sees it (`KIT_API.md` §3.1).
  *
  * `payload` is opaque bytes the kit never parsed. The ModelSync-derived fields are null for every
  * other kind, including an unknown arm — there is no ModelSync to derive them from.
@@ -41,7 +41,7 @@ data class InboxRecord(
 }
 
 /**
- * The durable inbox (`obscura-proto/KIT_API.md` §3).
+ * The durable inbox (`KIT_API.md` §3).
  *
  * The kit is a durable, authenticated inbox for **opaque payloads**: it stores bytes it cannot read,
  * addressed to and from identities it can prove. This class is that store.

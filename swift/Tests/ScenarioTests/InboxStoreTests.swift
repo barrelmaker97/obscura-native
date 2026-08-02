@@ -2,7 +2,7 @@ import XCTest
 import GRDB
 @testable import ObscuraKit
 
-/// The durable inbox (`obscura-proto/KIT_API.md` §3).
+/// The durable inbox (`KIT_API.md` §3).
 ///
 /// Mirrors `ObscuraKit-Kotlin`'s `InboxDomainTest` so both kits enforce the
 /// same durable-inbox contract.

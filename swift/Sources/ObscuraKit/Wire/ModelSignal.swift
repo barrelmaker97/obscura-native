@@ -2,7 +2,7 @@ import Foundation
 
 /// Ephemeral signals — typing indicators, read receipts, presence. Real-time state that
 /// auto-expires and is never persisted, which is what makes it DROPPABLE
-/// (`obscura-proto/KIT_API.md` §4) rather than something the inbox has to carry.
+/// (`KIT_API.md` §4) rather than something the inbox has to carry.
 ///
 /// ```swift
 /// await client.sendTyping(modelKey: "directMessage", conversationId: convId)
@@ -137,7 +137,7 @@ public struct SignalObservation {
     /// name `authorDeviceId` on the payload suggests. `SignalStore.getActive` returns
     /// `senderUsername`. Polls every 300ms.
     ///
-    /// The display name comes from the local friend graph (`SPEC.md` §0.5).
+    /// The display name comes from the local friend graph (`NATIVE_CONTRACT.md` §0.5).
     /// `authorDeviceId` is the authenticated device UUID and keys per-author deduplication.
     public var values: AsyncStream<[String]> {
         AsyncStream { continuation in

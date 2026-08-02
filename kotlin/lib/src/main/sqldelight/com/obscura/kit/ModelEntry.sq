@@ -1,4 +1,4 @@
--- The app's entry store (`obscura-proto/KIT_API.md` §8.1). Read and written by `EntryStore.kt`.
+-- The app's entry store (`KIT_API.md` §8.1). Read and written by `EntryStore.kt`.
 --
 -- `ttl_expires_at` is unused: EntryStore writes null and no query reads it. It remains for two
 -- platform constraints:

@@ -38,8 +38,8 @@ Regenerating with `--swift_opt=Visibility=Public` would fix that but exposes the
 **There is no "feature parity reference." Do not copy another kit's design.**
 
 The only thing this kit must match in the sibling `kotlin/` package is the **wire**
-(`obscura-proto/conformance/wire.json`). Behavior is specified by
-[`obscura-proto/SPEC.md`](../../proto/SPEC.md) — the contract, not a sibling codebase.
+(`protocol/conformance/wire.json`). Behavior is specified by
+[`NATIVE_CONTRACT.md`](../../docs/NATIVE_CONTRACT.md) — the contract, not a sibling codebase.
 
 ## The Public API Contract
 

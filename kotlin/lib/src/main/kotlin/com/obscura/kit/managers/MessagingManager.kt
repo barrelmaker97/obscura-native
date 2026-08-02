@@ -60,7 +60,7 @@ internal class MessagingManager(
     }
 
     /**
-     * Send an application entry (`obscura-proto/KIT_API.md` §5) — the outbox half of the thin kit.
+     * Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit.
      *
      * ```
      * send(recipientUserIds, modelKey, entryId, op, sentAt, payload)

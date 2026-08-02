@@ -8,7 +8,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 /**
- * Raw entry storage (`obscura-proto/KIT_API.md` §8.1).
+ * Raw entry storage (`KIT_API.md` §8.1).
  *
  * The property under test throughout is **that the kit does not interpret anything**. Merge moved to
  * the app; this store writes what it is given and returns it unchanged. Most of these tests exist to

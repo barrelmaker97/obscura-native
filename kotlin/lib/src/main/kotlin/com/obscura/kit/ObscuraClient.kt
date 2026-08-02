@@ -110,7 +110,7 @@ class ObscuraClient(
     internal val messenger: MessengerDomain
 
     /**
-     * The durable inbox (`obscura-proto/KIT_API.md` §3) — the thin kit's receive API.
+     * The durable inbox (`KIT_API.md` §3) — the thin kit's receive API.
      *
      * Four methods: peek / consume / discard / depth. The kit writes rows before it acks; the app
      * drains them. There is no insert, because the kit is the only writer.
@@ -118,7 +118,7 @@ class ObscuraClient(
     val inbox: InboxDomain
 
     /**
-     * Raw storage for application entries (`obscura-proto/KIT_API.md` §8.1) — the other half of the
+     * Raw storage for application entries (`KIT_API.md` §8.1) — the other half of the
      * thin kit's app-facing surface. `inbox` is how messages arrive; this is where the app keeps
      * what it made of them.
      */
@@ -892,7 +892,7 @@ class ObscuraClient(
     }
 
     /**
-     * Persist a decrypted message, by class (`obscura-proto/KIT_API.md` §4).
+     * Persist a decrypted message, by class (`KIT_API.md` §4).
      *
      * Called from the envelope loop **before** the ack, and it throws on a failed durable write so
      * the ack is skipped and the message survives on the server (SPEC §0.9 rule 3).
@@ -1270,7 +1270,7 @@ class ObscuraClient(
     suspend fun sendModelSync(friendUsername: String, model: String, entryId: String, op: String = "CREATE", data: Map<String, Any?>) =
         messagingManager.sendModelSync(friendUsername, model, entryId, op, data)
     /**
-     * Send an application entry (`obscura-proto/KIT_API.md` §5) — the outbox half of the thin kit,
+     * Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit,
      * paired with [inbox] on the receive side and [entries] for local storage.
      *
      * **The caller names the recipients.** The kit fans out to every device of every listed userId

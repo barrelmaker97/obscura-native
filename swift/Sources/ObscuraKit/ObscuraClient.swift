@@ -92,16 +92,16 @@ public class ObscuraClient {
     public let devices: DeviceActor
     public let gateway: GatewayConnection
 
-    /// The durable inbox (`obscura-proto/KIT_API.md` §3), and the only place an inbound MODEL_SYNC
+    /// The durable inbox (`KIT_API.md` §3), and the only place an inbound MODEL_SYNC
     /// lands.
     public let inbox: InboxStore
 
-    /// Raw storage for application entries (`obscura-proto/KIT_API.md` §8.1) — the other half of the
+    /// Raw storage for application entries (`KIT_API.md` §8.1) — the other half of the
     /// thin kit's app-facing surface. `inbox` is how messages arrive; this is where the app keeps
     /// what it made of them.
     ///
     /// It stores and returns rows. It does not merge them, expire them, or decide who they go to —
-    /// the app owns all three (`obscura-proto/SPEC.md` §0.4).
+    /// the app owns all three (`NATIVE_CONTRACT.md` §0.4).
     public let entries: EntryStore
 
     // Messenger is initialized after register/login with real keys
@@ -282,7 +282,7 @@ public class ObscuraClient {
     /// On init, restores Signal identity from DB if one exists.
     /// - Parameter keychainAccessGroup: shared keychain access group for the SQLCipher key. Pass
     ///   `nil` (default) for today's behaviour. Required if a Notification Service Extension must
-    ///   open this database — see `obscura-proto/KIT_API.md` P2, and note the extension also needs
+    ///   open this database — see `KIT_API.md` P2, and note the extension also needs
     ///   `dataDirectory` to be an App Group container path, which is the caller's to supply.
     public init(apiURL: String, dataDirectory: String, userId: String? = nil,
                 keychainAccessGroup: String? = nil, logger: ObscuraLogger = PrintLogger()) throws {
@@ -1227,7 +1227,7 @@ public class ObscuraClient {
         try await sendToAllDevices(friendUserId, msg)
     }
 
-    /// Send an application entry (`obscura-proto/KIT_API.md` §5) — the outbox half of the thin kit,
+    /// Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit,
     /// paired with ``inbox`` on the receive side and ``entries`` for local storage.
     ///
     /// **The caller names the recipients** (SPEC §0.4). The kit fans out to every device of every
@@ -1853,7 +1853,7 @@ public class ObscuraClient {
 
     // MARK: - Internal: Message Routing
 
-    /// Persist a decrypted message, by class (`obscura-proto/KIT_API.md` §4).
+    /// Persist a decrypted message, by class (`KIT_API.md` §4).
     ///
     /// Called from the envelope loop **before** the ack, and it throws on a failed durable write so
     /// the ack is skipped and the message survives on the server (SPEC §0.9 rule 3).

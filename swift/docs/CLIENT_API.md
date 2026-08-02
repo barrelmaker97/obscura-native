@@ -73,7 +73,7 @@ Both are cancelled by `disconnect()` or `deinit`.
 
 ## Friends
 
-Friends are the social graph. The kit uses them to address devices and to resolve a sender's display name (`obscura-proto/SPEC.md` §0.5) — it does **not** use them to decide an audience. The caller names recipients (§0.4).
+Friends are the social graph. The kit uses them to address devices and to resolve a sender's display name (`NATIVE_CONTRACT.md` §0.5) — it does **not** use them to decide an audience. The caller names recipients (§0.4).
 
 ```swift
 // Send friend request (encrypted FRIEND_REQUEST)

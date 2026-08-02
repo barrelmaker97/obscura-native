@@ -23,7 +23,7 @@ import org.junit.jupiter.api.TestMethodOrder
  * recovery key.
  *
  * These tests assert only wire delivery; they do not prove recovery works.
- * The gap is deliberately disabled (`obscura-proto/KIT_API.md` §4.2):
+ * The gap is deliberately disabled (`KIT_API.md` §4.2):
  * `ObscuraConfig.enableRecoveryPhrase` defaults to `false` and obscura-pix never sets it, so nothing
  * in the running app can emit this message. This suite reaches it only by opting in explicitly
  * (`recoveryConfig`, below). Any receive implementation must verify against the

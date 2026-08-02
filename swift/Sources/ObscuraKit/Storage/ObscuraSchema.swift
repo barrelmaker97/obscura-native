@@ -141,7 +141,7 @@ public enum ObscuraSchema {
             """)
 
             // ── Inbox ────────────────────────────────────────────────────────────────────
-            // The durable inbox (`obscura-proto/KIT_API.md` §3). Do not edit this applied v1
+            // The durable inbox (`KIT_API.md` §3). Do not edit this applied v1
             // statement; change the table in a new migration.
             //
             // `AUTOINCREMENT` is not decoration: a plain `INTEGER PRIMARY KEY` aliases rowid, and

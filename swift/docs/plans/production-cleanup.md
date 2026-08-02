@@ -2,7 +2,7 @@
 
 > **Archived, non-normative planning snapshot.** Do not use this checklist as a
 > description of current code or remaining work. Use `README.md`, `CLAUDE.md`,
-> `SPEC.md`, and open issues for current guidance.
+> `docs/NATIVE_CONTRACT.md`, `docs/KIT_API.md`, and open issues for current guidance.
 
 Kill LLM duct tape, reach Signal-grade internals. Three phases, each leaves the public API unchanged. Views written today work through all three phases.
 
