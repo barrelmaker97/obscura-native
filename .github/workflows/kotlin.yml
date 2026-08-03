@@ -30,7 +30,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@v6.2.0
 
       - uses: bufbuild/buf-setup-action@v1
         with:
@@ -99,7 +99,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@v6.2.0
 
       - name: Start obscura-server (latest prebuilt image)
         run: |
