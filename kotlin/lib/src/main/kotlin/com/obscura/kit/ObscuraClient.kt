@@ -187,6 +187,9 @@ class ObscuraClient(
 
     // Keep the single reconnect retry inside the push path's tight OS time budget.
     private val PUSH_DRAIN_RECONNECT_RETRY_MS = 250L
+
+    /** See [shouldForceReconnectAfterPush]. */
+    private val PUSH_DRAIN_RECENT_ACTIVITY_MS = 10_000L
     private val pushDrainMutex = Mutex()
     private val processedEnvelopeCount = AtomicLong()
     private val lastProcessedEnvelopeAtMs = AtomicLong()
@@ -635,6 +638,9 @@ class ObscuraClient(
      * This observes successful receive-path persistence without consuming [incomingMessages].
      * The app remains that channel's single consumer and owns all notification classification.
      *
+     * If the socket already looked CONNECTED and the drain still yields nothing, it is torn down and
+     * re-established once before giving up — see [shouldForceReconnectAfterPush].
+     *
      * Returns zero after both connection attempts fail, which is indistinguishable from a
      * successful drain that processed no envelopes. Connection failure is logged.
      */
@@ -643,28 +649,76 @@ class ObscuraClient(
 
     private suspend fun performPendingMessageDrain(timeoutMs: Long): Int {
         val processedAtStart = processedEnvelopeCount.get()
+        val startedConnected = _connectionState.value == ConnectionState.CONNECTED
 
-        if (_connectionState.value != ConnectionState.CONNECTED) {
-            // Retry one transient connection failure and log both attempts. The current Int return
-            // cannot distinguish "no envelopes" from "could not connect", so failure must remain
-            // observable through the logger.
-            try {
-                connect()
-            } catch (e: Exception) {
-                log("PUSH DRAIN connect attempt 1 failed: ${e.message}")
-                logger.log("push drain: connect failed (attempt 1/2): ${e.message}")
-                delay(PUSH_DRAIN_RECONNECT_RETRY_MS)
-                try {
-                    connect()
-                } catch (e2: Exception) {
-                    log("PUSH DRAIN connect attempt 2 failed — returning zero: ${e2.message}")
-                    logger.log("push drain ABORTED: could not connect after 2 attempts: ${e2.message}")
-                    return 0
-                }
+        if (!startedConnected && !connectWithOneRetry()) return 0
+
+        val budget = System.currentTimeMillis() + timeoutMs
+        awaitEnvelopes(budget)
+
+        var processed = processedEnvelopeCount.get() - processedAtStart
+
+        // An empty drain on a socket that claimed CONNECTED means the push contradicted the
+        // connection state; [shouldForceReconnectAfterPush] explains why that is the reading.
+        if (shouldForceReconnectAfterPush(
+                processed = processed,
+                startedConnected = startedConnected,
+                lastProcessedAtMs = lastProcessedEnvelopeAtMs.get(),
+                nowMs = System.currentTimeMillis(),
+                recentActivityWindowMs = PUSH_DRAIN_RECENT_ACTIVITY_MS,
+            )
+        ) {
+            log("PUSH DRAIN contradiction — push arrived but nothing drained on a live socket; reconnecting")
+            logger.log("push drain: no envelopes on a connected socket; forcing reconnect")
+
+            // Same budget, not a fresh one: [timeoutMs] is the caller's hard cap, and the first
+            // wait returns after ~500ms of idle, so there is normally plenty of it left.
+            if (forceReconnect()) {
+                awaitEnvelopes(budget)
+                processed = processedEnvelopeCount.get() - processedAtStart
             }
         }
 
-        val deadline = System.currentTimeMillis() + timeoutMs
+        return processed.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    /**
+     * Tear down a socket we no longer believe in and establish a fresh one.
+     *
+     * [connect] alone cannot do this: it early-returns while the state says CONNECTED, which is
+     * exactly the state we are disputing.
+     */
+    private suspend fun forceReconnect(): Boolean {
+        disconnect()
+        return connectWithOneRetry()
+    }
+
+    /**
+     * Connect, retrying one transient failure. Returns false when both attempts fail.
+     *
+     * The Int return of a drain cannot distinguish "no envelopes" from "could not connect", so
+     * failure has to stay observable through the logger.
+     */
+    private suspend fun connectWithOneRetry(): Boolean {
+        try {
+            connect()
+        } catch (e: Exception) {
+            log("PUSH DRAIN connect attempt 1 failed: ${e.message}")
+            logger.log("push drain: connect failed (attempt 1/2): ${e.message}")
+            delay(PUSH_DRAIN_RECONNECT_RETRY_MS)
+            try {
+                connect()
+            } catch (e2: Exception) {
+                log("PUSH DRAIN connect attempt 2 failed — returning zero: ${e2.message}")
+                logger.log("push drain ABORTED: could not connect after 2 attempts: ${e2.message}")
+                return false
+            }
+        }
+        return true
+    }
+
+    /** Wait for the receive path to go quiet for 500ms, or until [deadline]. */
+    private suspend fun awaitEnvelopes(deadline: Long) {
         val idleThresholdMs = 500L
         var lastActivityAt = System.currentTimeMillis()
 
@@ -679,10 +733,6 @@ class ObscuraClient(
                 delay(50)
             }
         }
-
-        val processed = (processedEnvelopeCount.get() - processedAtStart)
-            .coerceIn(0L, Int.MAX_VALUE.toLong())
-        return processed.toInt()
     }
 
     private var preKeyStatusJob: Job? = null
@@ -1399,4 +1449,39 @@ class ObscuraClient(
         clientSyncManager.resetSessionWith(targetUserId, reason)
     suspend fun resetAllSessions(reason: String = "manual") = clientSyncManager.resetAllSessions(reason)
     suspend fun pushHistoryToDevice(targetDeviceId: String) = clientSyncManager.pushHistoryToDevice(targetDeviceId)
+}
+
+/**
+ * Should a push-wake drain that came up empty tear down the socket and try again?
+ *
+ * A silent push is not a generic "wake up and look around". The server schedules it when it accepts
+ * a message and cancels it once this device acks, so a push landing here means the server had
+ * something for us and did not see our ack — evidence about the connection, arriving over a
+ * different channel than the connection.
+ *
+ * So when [startedConnected] is true and [processed] is still zero, the local belief "I am connected
+ * and receiving" has been CONTRADICTED. Acting on that is error handling rather than distrust of
+ * state, and it is self-limiting: reconnects are capped by pushes, which are capped by messages that
+ * failed to deliver — zero in a healthy system.
+ *
+ * [recentActivityWindowMs] covers the one benign way to reach zero: the socket delivered the message
+ * just before the scheduled push fired, with our ack still in flight. Reconnecting there is churn.
+ */
+internal fun shouldForceReconnectAfterPush(
+    processed: Long,
+    startedConnected: Boolean,
+    lastProcessedAtMs: Long,
+    nowMs: Long,
+    recentActivityWindowMs: Long,
+): Boolean {
+    if (processed > 0L) return false
+
+    // A socket established for this drain has no staleness to blame, and reconnecting it again
+    // would change nothing.
+    if (!startedConnected) return false
+
+    // Never delivered anything, so it gets no benefit of the doubt.
+    if (lastProcessedAtMs == 0L) return true
+
+    return nowMs - lastProcessedAtMs > recentActivityWindowMs
 }
