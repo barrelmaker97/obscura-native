@@ -10,7 +10,6 @@ import obscura.client.v1.Client.ClientMessage
  */
 internal class DeviceManager(
     private val ctx: ClientContext,
-    private val clientSyncManager: () -> ClientSyncManager,
     private val announceDevicesCallback: suspend () -> Unit
 ) {
     private val session get() = ctx.session
@@ -19,8 +18,8 @@ internal class DeviceManager(
     private val messenger get() = ctx.messenger
     private val friends get() = ctx.friends
     private val devices get() = ctx.devices
-    private val messages get() = ctx.messages
     private val messageSender get() = ctx.messageSender
+
     suspend fun announceDevices() {
         val ownDevices = devices.getOwnDevices()
         val msg = ClientMessage.newBuilder()
@@ -58,40 +57,6 @@ internal class DeviceManager(
             }).build()
 
         messageSender.sendToAllDevices(friendData.userId, msg)
-    }
-
-    suspend fun revokeDevice(recoveryPhrase: String, targetDeviceId: String) {
-        api.deleteDevice(targetDeviceId)
-        messages.deleteByAuthorDevice(targetDeviceId)
-        signalStore.deleteAllSessions(targetDeviceId)
-
-        val remainingDeviceIds = devices.getOwnDevices()
-            .map { it.deviceId }
-            .filter { it != targetDeviceId }
-
-        val announceData = com.obscura.kit.crypto.RecoveryKeys.serializeAnnounceForSigning(
-            remainingDeviceIds, System.currentTimeMillis(), true
-        )
-        val signature = com.obscura.kit.crypto.RecoveryKeys.signWithPhrase(recoveryPhrase, announceData)
-        val recoveryPubKey = com.obscura.kit.crypto.RecoveryKeys.getPublicKey(recoveryPhrase)
-
-        val msg = ClientMessage.newBuilder()
-            .setTimestamp(System.currentTimeMillis())
-            .setDeviceAnnounce(obscura.client.v1.deviceAnnounce {
-                for (devId in remainingDeviceIds) {
-                    this.devices.add(obscura.client.v1.deviceInfo {
-                        deviceUuid = devId; deviceId = devId; deviceName = "Device"
-                    })
-                }
-                timestamp = System.currentTimeMillis()
-                isRevocation = true
-                this.signature = com.google.protobuf.ByteString.copyFrom(signature)
-                this.recoveryPublicKey = com.google.protobuf.ByteString.copyFrom(recoveryPubKey.serialize())
-            }).build()
-
-        for (friend in friends.getAccepted()) {
-            messageSender.sendToAllDevices(friend.userId, msg)
-        }
     }
 
     suspend fun approveLink(newDeviceId: String, challengeResponse: ByteArray) {
@@ -144,7 +109,6 @@ internal class DeviceManager(
         messenger.queueMessage(newDeviceId, msg, session.userId)
         messenger.flushMessages()
 
-        clientSyncManager().pushHistoryToDevice(newDeviceId)
         announceDevicesCallback()
     }
 

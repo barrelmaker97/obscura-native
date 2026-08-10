@@ -12,7 +12,6 @@ internal class ClientContext(
     val messenger: MessengerDomain,
     val friends: FriendDomain,
     val devices: DeviceDomain,
-    val messages: MessageDomain,
     val db: ObscuraDatabase
 ) {
     lateinit var messageSender: MessageSender

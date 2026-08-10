@@ -6,7 +6,12 @@ type: feedback
 
 The rule: **supported user behavior uses the public facade.**
 
-If you find yourself writing `ClientMessage.newBuilder().setType(...)` in a test, stop. Add a method to `ObscuraClient` instead: `send()`, `sendModelSync()`, `announceDeviceRevocation()`, etc.
+If you find yourself writing `ClientMessage.newBuilder().setType(...)` in a test, stop. Use the facade instead: `send()`, `sendAttachment()`, `announceDeviceRevocation()`, etc.
+
+`send()` is the only app-payload send. It takes explicit `recipientUserIds` — a
+helper that resolves an audience from a friend username would be the kit
+deciding an audience from an application concept, which `NATIVE_CONTRACT.md`
+§0.4 forbids. Test helpers wrap `send()`; they do not get their own facade method.
 
 Raw protobuf is appropriate when the test intentionally creates input that no
 public API should expose. Current exceptions are:

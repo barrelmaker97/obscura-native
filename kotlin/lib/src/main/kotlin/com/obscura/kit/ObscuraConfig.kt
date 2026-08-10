@@ -8,7 +8,6 @@ data class ObscuraConfig(
     // Client-side pacing for prod auth rate limits; env-overridable so CI can
     // zero it against a rate-limit-disabled local container (parity with iOS)
     val authRateLimitDelayMs: Long = System.getenv("AUTH_REQUEST_DELAY_MS")?.toLongOrNull() ?: 500L,
-    val enableRecoveryPhrase: Boolean = false // opt-in: enables BIP39 recovery, remote device revocation, encrypted backups
 ) {
     init {
         // Plain HTTP is allowed only for loopback (local containerized server

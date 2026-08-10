@@ -20,10 +20,9 @@ import org.junit.jupiter.api.Test
  * **Why this file exists.** Until now no unit test constructed an `ObscuraClient`, so
  * `routeMessage`, `inboxMessage`, `clampFutureTimestamp` and every `handle*` were reachable only
  * from the integration suite — which needs a live, correctly configured `obscura-server`. That is
- * exactly where every shipped defect has been: a missing self-check on SENT_SYNC, a
- * signature verified against a key from the same message, a redelivery that notified twice, a
- * typing indicator accepted into a conversation the sender is not in. None of those needs a server
- * to demonstrate.
+ * exactly where every shipped defect has been: a signature verified against a key from the same
+ * message, a redelivery that notified twice, a typing indicator accepted into a conversation the
+ * sender is not in. None of those needs a server to demonstrate.
  *
  * The client is built over an in-memory driver and never connects: the constructor wires managers
  * and opens a database, and `GatewayConnection` does not touch a socket until `connect()`. The
@@ -149,19 +148,15 @@ class ReceivePathTest {
         assertEquals("CREATE", row.op)
     }
 
-    // ── SENT_SYNC: the missing self-check ─────────────────────────────────────
-
     /**
-     * Friendship is not required to deliver a message, so without the `sourceUserId != userId`
-     * guard ANY account could send a SentSync and have the kit write a message row with an
-     * attacker-chosen conversation, content and timestamp, stamped with OUR device id — rendering
-     * as a message we sent. `Message.sq`'s INSERT OR REPLACE keys on the message id, so a chosen id
-     * also overwrites a real one.
+     * SENT_SYNC lost its handler with the legacy message model, so it must now be dropped and acked
+     * rather than fall through to `routeMessage`'s kit-internal `error(...)` — which would throw,
+     * skip the ack, and leave the envelope redelivering forever.
      */
     @Test
-    fun `a SENT_SYNC from another account is ignored`() = runBlocking {
+    fun `a SENT_SYNC is dropped and acked now that no handler writes messages`() = runBlocking {
         val c = newClient()
-        val forged = ClientMessage.newBuilder()
+        val sentSync = ClientMessage.newBuilder()
             .setSentSync(obscura.client.v1.sentSync {
                 recipientUsername = "victim"
                 messageId = "m1"
@@ -169,28 +164,10 @@ class ReceivePathTest {
                 timestamp = 1_700_000_000_000
             }).build()
 
-        c.handleSentSync(forged, sourceUserId = peerUserId)
+        assertTrue(c.routeMessage(sentSync, peerUserId, "dev-peer", "env-1"))
 
-        assertEquals(0, c.getMessages("victim").size,
-            "a SentSync is an echo of OUR OWN send; from anyone else it is a forged message row")
-    }
-
-    @Test
-    fun `a SENT_SYNC from our own other device is stored`() = runBlocking {
-        val c = newClient()
-        val own = ClientMessage.newBuilder()
-            .setSentSync(obscura.client.v1.sentSync {
-                recipientUsername = "bob"
-                messageId = "m1"
-                content = ByteString.copyFrom("hello".toByteArray())
-                timestamp = 1_700_000_000_000
-            }).build()
-
-        c.handleSentSync(own, sourceUserId = selfUserId)
-
-        val stored = c.getMessages("bob").single()
-        assertEquals("hello", stored.content)
-        assertEquals(selfDeviceId, stored.authorDeviceId)
+        assertEquals(0L, InboxDomain(c.db).depth(),
+            "an unimplemented arm is diagnosed and acked, never swept into the app's inbox")
     }
 
     // ── DEVICE_ANNOUNCE: trust-on-first-use on the recovery key ───────────────

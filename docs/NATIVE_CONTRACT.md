@@ -61,8 +61,10 @@ looks locally.
 - Device provisioning, linking, revocation, takeover.
 - The friend graph — needed both to address a peer's devices and to resolve a
   sender's display name locally (§0.5).
-- The message store. The push path writes to it with the app closed, so it
-  cannot live in the app's runtime.
+- The durable inbox and the opaque entry store. The push path writes to them
+  with the app closed, so they cannot live in the app's runtime. A kit owns no
+  message model of its own: an inbox row is opaque payload bytes plus the
+  transport identity fields, and what a message *is* belongs to the app.
 - Attachment encryption, upload, download.
 - The push-wake path: decrypt → persist → notify.
 

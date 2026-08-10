@@ -1,0 +1,11 @@
+-- Migration 5 -> 6: drop the legacy Message table.
+--
+-- The kit no longer has an application message model. `MODEL_SYNC` is the app's data path and it
+-- lands in `InboxRow`; the app stores what it makes of it through `ModelEntry`. The `TEXT` and
+-- `SENT_SYNC` receive handlers that were this table's only writers are gone, so the rows are
+-- unreachable plaintext — decrypted message content sitting in a database that is still plaintext
+-- SQLite on Android. Dropping it removes that at upgrade time rather than leaving it for a wipe.
+--
+-- `IF EXISTS` tolerates databases whose stored version and physical schema do not agree, avoiding
+-- a launch-time failure.
+DROP TABLE IF EXISTS Message;

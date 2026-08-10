@@ -3,10 +3,6 @@ package scenarios
 import com.obscura.kit.ObscuraClient
 import com.obscura.kit.ObscuraConfig
 import com.obscura.kit.AuthState
-import com.obscura.kit.crypto.SyncBlob
-import com.obscura.kit.stores.FriendData
-import com.obscura.kit.stores.FriendStatus
-import com.obscura.kit.stores.MessageData
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -101,25 +97,5 @@ class DeviceLinkFlowTests {
         assertEquals("Hello both devices", msg2.content())
 
         device1.disconnect(); device2.disconnect(); carol.disconnect()
-    }
-
-    @Test @Order(4)
-    fun `SyncBlob export includes messages`() {
-        val friends = listOf(FriendData(
-            userId = "u1", username = "alice",
-            status = FriendStatus.ACCEPTED
-        ))
-        val messages = mapOf("alice" to listOf(MessageData(
-            id = "m1", conversationId = "alice", authorDeviceId = "dev1",
-            content = "hello", timestamp = 1000, type = "text"
-        )))
-
-        val compressed = SyncBlob.export(friends, messages)
-        val parsed = SyncBlob.parse(compressed)
-
-        assertNotNull(parsed)
-        assertEquals(1, parsed!!.friends.size)
-        assertEquals(1, parsed.messages.size)
-        assertEquals("hello", parsed.messages[0]["content"])
     }
 }

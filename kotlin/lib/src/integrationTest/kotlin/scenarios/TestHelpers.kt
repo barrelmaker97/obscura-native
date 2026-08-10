@@ -11,17 +11,15 @@ import org.junit.jupiter.api.Assertions.*
 
 /** Test-only: suspend until the next inbound message (or time out). */
 /**
- * The human-readable content of a received message, wherever it actually lives.
+ * The application content of a received entry.
  *
- * `ReceivedMessage.text` belongs to the compatibility TEXT arm. MODEL_SYNC
- * content is application-owned opaque payload data.
+ * MODEL_SYNC data is application-owned opaque payload bytes; reading `content` out of it is
+ * something only a test (standing in for the app) may do, never the kit.
  */
 fun ReceivedMessage.content(): String =
-    if (type == "MODEL_SYNC") {
-        runCatching {
-            org.json.JSONObject(String(raw!!.modelSync.data.toByteArray())).optString("content", "")
-        }.getOrDefault("")
-    } else text
+    runCatching {
+        org.json.JSONObject(String(raw!!.modelSync.data.toByteArray())).optString("content", "")
+    }.getOrDefault("")
 
 /**
  * Wait for the next message OF A PARTICULAR KIND, skipping anything else already queued.
@@ -129,12 +127,7 @@ suspend fun becomeFriends(a: ObscuraClient, b: ObscuraClient) {
  * point is that the SERVER queues it. [sendAndVerify] polls the receiver's inbox, which cannot
  * succeed until they reconnect.
  */
-/**
- * Whether [client] has received an entry whose payload carries [content].
- *
- * MODEL_SYNC application data lives in the inbox; `MessageDomain` contains only
- * compatibility TEXT and SENT_SYNC data.
- */
+/** Whether [client] has received an entry whose payload carries [content]. */
 suspend fun ObscuraClient.hasReceived(content: String, timeoutMs: Long = 10_000): Boolean {
     val deadline = System.currentTimeMillis() + timeoutMs
     while (System.currentTimeMillis() < deadline) {
@@ -147,6 +140,19 @@ suspend fun ObscuraClient.hasReceived(content: String, timeoutMs: Long = 10_000)
         delay(250)
     }
     return false
+}
+
+/**
+ * Send a `story` entry the way obscura-pix does: the caller names the recipient (SPEC §0.4) and the
+ * body is opaque payload bytes the kit never opens.
+ */
+suspend fun ObscuraClient.sendStory(receiver: ObscuraClient, entryId: String, data: Map<String, Any?>) {
+    send(
+        recipientUserIds = listOf(receiver.userId!!),
+        modelKey = "story",
+        entryId = entryId,
+        payload = org.json.JSONObject(data).toString().toByteArray(),
+    )
 }
 
 suspend fun sendOnly(sender: ObscuraClient, receiver: ObscuraClient, text: String): String {
