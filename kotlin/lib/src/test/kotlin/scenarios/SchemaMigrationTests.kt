@@ -40,8 +40,8 @@ class SchemaMigrationTests {
         // A tripwire, not a fact worth asserting for its own sake: if you add or remove a table,
         // this number MUST move, because moving it is what makes existing installs run migrate().
         // If this fails, do not just update the constant — add the matching .sqm.
-        // 4.sqm adds Friend.recovery_public_key for trust-on-first-use pinning.
-        assertEquals(5L, ObscuraDatabase.Schema.version,
+        // 5.sqm drops the legacy Message table.
+        assertEquals(6L, ObscuraDatabase.Schema.version,
             "schema version = (highest .sqm number) + 1; a schema change without a new .sqm never " +
                 "reaches an existing install")
     }

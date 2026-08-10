@@ -101,6 +101,20 @@ final class PayloadClassTests: XCTestCase {
     /// in this set must match exactly — the point of the test below is that drift has to be declared
     /// here, in writing, rather than just happening.
     private static let divergesFromKotlin: [String: String] = [
+        // The Kotlin kit deleted its application message model: `MODEL_SYNC` into the inbox is the
+        // app's only data path, and the handlers that made these three kit-internal went with it, so
+        // Kotlin now classifies all three `unimplemented`. THIS kit still carries that model and
+        // still handles them, so kit-internal remains correct HERE — the divergence is real, not a
+        // stale expectation, and it closes when this kit drops its message model too.
+        "TEXT":
+            "Kotlin removed its message model and classifies this unimplemented; this kit still "
+            + "has a TEXT handler. Delete this entry when the Swift message model is removed.",
+        "SENT_SYNC":
+            "Kotlin removed its message model and classifies this unimplemented; this kit still "
+            + "has a SENT_SYNC handler. Delete this entry when the Swift message model is removed.",
+        "SYNC_BLOB":
+            "Kotlin removed SyncBlob with the recovery assembly and classifies this unimplemented; "
+            + "this kit still handles it. Delete this entry when the Swift message model is removed.",
         "DEVICE_LINK_APPROVAL":
             "Kotlin classifies this kit-internal and HANDLES it; this kit cannot receive one "
             + "(CLAUDE.md). Kit-internal-with-no-handler now throws, which would never ack a LIVE "
@@ -113,8 +127,10 @@ final class PayloadClassTests: XCTestCase {
             "MODEL_SYNC": .inboxed,
             "FRIEND_REQUEST": .kitInternal, "FRIEND_RESPONSE": .kitInternal,
             "DEVICE_ANNOUNCE": .kitInternal,
-            "SESSION_RESET": .kitInternal, "SYNC_BLOB": .kitInternal, "SENT_SYNC": .kitInternal,
-            "TEXT": .kitInternal,
+            "SESSION_RESET": .kitInternal,
+            // These three are this kit's own classification, and Kotlin no longer agrees.
+            // See `divergesFromKotlin` above.
+            "SYNC_BLOB": .kitInternal, "SENT_SYNC": .kitInternal, "TEXT": .kitInternal,
             "MODEL_SIGNAL": .droppable,
             "DEVICE_RECOVERY_ANNOUNCE": .unimplemented, "HISTORY_CHUNK": .unimplemented,
             "SYNC_REQUEST": .unimplemented, "SETTINGS_SYNC": .unimplemented,

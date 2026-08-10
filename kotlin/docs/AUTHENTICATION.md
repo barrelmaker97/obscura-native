@@ -58,7 +58,11 @@ When the new device receives `DEVICE_LINK_APPROVAL`:
 3. Friend data is imported
 4. Auth state transitions to `AUTHENTICATED`
 
-After this, the new device can use the full API — send, inbox, entries, messaging, everything.
+After this, the new device can use the full API — send, inbox, entries, everything.
+
+Friend data reaches the new device through `friendsExport` on the approval
+message itself. There is no separate `SYNC_BLOB` push: it carried the same
+friend list and nothing else.
 
 ### Auth states
 
@@ -117,26 +121,17 @@ client.connect()
 
 Signal keys, friend lists, inbox rows and stored entries persist in the database. The session restore just re-establishes the network identity.
 
-## Recovery Phrase (Optional)
+## Recovery Phrase
 
-Recovery phrases are opt-in. Enable them in config:
+Not implemented. There is no recovery phrase, no encrypted backup, and no remote
+device revocation. Revoking a device requires access to an existing linked one.
 
-```kotlin
-val client = ObscuraClient(ObscuraConfig(
-    apiUrl = "https://obscura.barrelmaker.dev",
-    enableRecoveryPhrase = true
-))
-```
-
-With recovery enabled, you can:
-
-```kotlin
-val phrase = client.generateRecoveryPhrase()  // 12-word BIP39 mnemonic
-client.announceRecovery(phrase)               // broadcast to friends
-client.revokeDevice(phrase, targetDeviceId)   // revoke a lost device remotely
-```
-
-Without recovery enabled, calling these methods throws `IllegalArgumentException`. Device revocation without a recovery phrase requires access to an existing linked device.
+The BIP39, recovery-keypair, verification-code and backup-encryption primitives
+in `crypto/` are kept and unit-tested so recovery can be rebuilt on `EntryStore`,
+but nothing in the kit calls them on the send side. The one live consumer is the
+**receive** side: `handleDeviceAnnounce` pins a peer's `recovery_public_key` on
+first use and rejects any later signed or revocation announce that does not
+verify under the pinned key. That defense stays regardless, and fails closed.
 
 ## What You Can Rely On
 

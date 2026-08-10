@@ -20,8 +20,6 @@ Server: `obscura.barrelmaker.dev` (OpenAPI spec at `/openapi.yaml`)
    - Rate is tracked per server instance, and there are 3 behind the load balancer, so effective limits are ~3x
    - The 500ms `authRateLimitDelayMs` in tests covers auth. General endpoints rarely hit limits unless running 200+ tests in sequence.
 
-6. **Backup download with same ETag returns 304.** After `uploadBackup()`, calling `downloadBackup()` with the cached etag returns 304 (not modified) → null. For fresh download, pass etag=null.
-
-7. **No `/health` endpoint.** Use `/openapi.yaml` for server availability checks.
+6. **No `/health` endpoint.** Use `/openapi.yaml` for server availability checks.
 
 **How to apply:** Check these whenever adding new API calls or tests. The OpenAPI spec at `/openapi.yaml` is the source of truth for response codes and body shapes.

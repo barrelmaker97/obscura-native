@@ -18,4 +18,4 @@ bob1.acceptFriend(...)
 alice.waitForMessage() // FRIEND_RESPONSE
 ```
 
-**How to apply:** Any test involving multiple devices of the same user must account for fan-out. Every `befriend()`, `send()`, `sendModelSync()`, etc. produces N messages where N = number of target devices.
+**How to apply:** Any test involving multiple devices of the same user must account for fan-out. Every `befriend()`, `send()`, etc. produces N messages where N = number of target devices.

@@ -253,8 +253,6 @@ internal class AuthManager(
         session.deviceId = null
         session.username = null
         session.refreshToken = null
-        session.recoveryPhrase = null
-        session.recoveryPublicKey = null
         setAuthState(AuthState.LOGGED_OUT)
     }
 

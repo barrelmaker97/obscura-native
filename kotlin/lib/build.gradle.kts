@@ -201,7 +201,7 @@ kover {
         }
         // Coverage floor for the unit suite (`:lib:koverVerify`, wired into the
         // fast PR gate). A ratchet, not a target — bump these up as coverage
-        // grows so it can't silently regress. Currently ~57% instr / ~67% line.
+        // grows so it can't silently regress. Currently ~62% instr / ~73% line.
         verify {
             rule("Unit-suite coverage floor") {
                 minBound(62, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
