@@ -75,7 +75,7 @@ class CoreFlowTests {
     }
 
     @Test
-    fun `Encrypted text messages round-trip with conversations verification`() = runBlocking {
+    fun `Encrypted entries round-trip in both directions`() = runBlocking {
         assumeTrue(checkServer())
 
         val alice = registerAndConnect("cf_c")

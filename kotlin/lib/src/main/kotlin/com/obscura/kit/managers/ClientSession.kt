@@ -11,7 +11,5 @@ class ClientSession {
     var username: String? = null
     var refreshToken: String? = null
     var registrationId: Int = 0
-    var recoveryPhrase: String? = null
-    var recoveryPublicKey: ByteArray? = null
     var pendingLinkChallenge: ByteArray? = null // set during generateLinkCode(), verified on approval
 }

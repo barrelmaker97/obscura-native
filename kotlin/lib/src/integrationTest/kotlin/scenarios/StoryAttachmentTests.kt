@@ -1,8 +1,6 @@
 package scenarios
 
 import com.obscura.kit.AuthState
-import com.obscura.kit.ConnectionState
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.jupiter.api.Assertions.*
@@ -37,8 +35,8 @@ class StoryAttachmentTests {
 
         // Send story with media reference
         val storyId = "story_${System.currentTimeMillis()}"
-        alice.sendModelSync(bob.username!!, "story", storyId,
-            data = mapOf("content" to "My vacation", "mediaRef" to attId, "mimeType" to "image/jpeg"))
+        alice.sendStory(bob, storyId,
+            mapOf("content" to "My vacation", "mediaRef" to attId, "mimeType" to "image/jpeg"))
 
         // Bob receives MODEL_SYNC
         val msg = bob.waitForType("MODEL_SYNC")
@@ -68,8 +66,8 @@ class StoryAttachmentTests {
         val bob = registerAndConnect("s10tb")
         becomeFriends(alice, bob)
 
-        alice.sendModelSync(bob.username!!, "story", "story_text_${System.currentTimeMillis()}",
-            data = mapOf("content" to "Just text, no media"))
+        alice.sendStory(bob, "story_text_${System.currentTimeMillis()}",
+            mapOf("content" to "Just text, no media"))
 
         val msg = bob.waitForType("MODEL_SYNC")
         assertEquals(alice.userId, msg.sourceUserId)
@@ -96,8 +94,8 @@ class StoryAttachmentTests {
         val (attId, _) = alice.uploadAttachment(jpeg)
 
         // Send story with both text and image
-        alice.sendModelSync(bob.username!!, "story", "story_combo_${System.currentTimeMillis()}",
-            data = mapOf("content" to "check out this sunset", "mediaRef" to attId, "contentType" to "image/jpeg"))
+        alice.sendStory(bob, "story_combo_${System.currentTimeMillis()}",
+            mapOf("content" to "check out this sunset", "mediaRef" to attId, "contentType" to "image/jpeg"))
 
         val msg = bob.waitForType("MODEL_SYNC")
         assertEquals(alice.userId, msg.sourceUserId)
@@ -127,8 +125,7 @@ class StoryAttachmentTests {
 
         // Send 3 stories in sequence
         for (i in 1..3) {
-            alice.sendModelSync(bob.username!!, "story", "seq_$i",
-                data = mapOf("content" to "Story $i"))
+            alice.sendStory(bob, "seq_$i", mapOf("content" to "Story $i"))
         }
 
         // Receive all 3 and verify each

@@ -15,10 +15,14 @@ import org.junit.jupiter.api.Test
 class PayloadClassTest {
 
     /**
-     * The expected class of every arm, written out. Also the cross-kit contract: these are the exact
-     * classifications `ObscuraKit-swift`'s `PayloadClassTests.testEveryArmHasTheSameClassAsTheKotlinKit`
-     * asserts. The kits may differ in how they store a row; they may not differ in whether an arm is
-     * stored at all.
+     * The expected class of every arm, written out. Also the cross-kit contract: `ObscuraKit-swift`'s
+     * `PayloadClassTests.testEveryArmHasTheSameClassAsTheKotlinKit` asserts the same table. The kits
+     * may differ in how they store a row; they may not differ in whether an arm is stored at all.
+     *
+     * **TEXT, SENT_SYNC and SYNC_BLOB currently diverge.** Kotlin dropped its legacy message model,
+     * so those three have no handler here and are UNIMPLEMENTED; Swift still classifies them
+     * kit-internal. The divergence is safe in one direction only — neither kit inboxes them, so no
+     * app-visible row differs — but Swift must follow before this is a contract again.
      */
     private val expected = mapOf(
         PayloadCase.MODEL_SYNC to PayloadClass.INBOXED,
@@ -29,10 +33,10 @@ class PayloadClassTest {
         PayloadCase.DEVICE_ANNOUNCE to PayloadClass.KIT_INTERNAL,
         PayloadCase.DEVICE_LINK_APPROVAL to PayloadClass.KIT_INTERNAL,
         PayloadCase.SESSION_RESET to PayloadClass.KIT_INTERNAL,
-        PayloadCase.SYNC_BLOB to PayloadClass.KIT_INTERNAL,
-        PayloadCase.SENT_SYNC to PayloadClass.KIT_INTERNAL,
-        PayloadCase.TEXT to PayloadClass.KIT_INTERNAL,
         PayloadCase.MODEL_SIGNAL to PayloadClass.DROPPABLE,
+        PayloadCase.SYNC_BLOB to PayloadClass.UNIMPLEMENTED,
+        PayloadCase.SENT_SYNC to PayloadClass.UNIMPLEMENTED,
+        PayloadCase.TEXT to PayloadClass.UNIMPLEMENTED,
         PayloadCase.DEVICE_RECOVERY_ANNOUNCE to PayloadClass.UNIMPLEMENTED,
         PayloadCase.HISTORY_CHUNK to PayloadClass.UNIMPLEMENTED,
         PayloadCase.SYNC_REQUEST to PayloadClass.UNIMPLEMENTED,
@@ -116,6 +120,10 @@ class PayloadClassTest {
             PayloadCase.FRIEND_SYNC,
             PayloadCase.SETTINGS_SYNC,
             PayloadCase.READ_SYNC,
+            // The legacy message model these three fed is gone; the app's data path is MODEL_SYNC.
+            PayloadCase.TEXT,
+            PayloadCase.SENT_SYNC,
+            PayloadCase.SYNC_BLOB,
         )
 
         unimplemented.forEach {
@@ -130,7 +138,7 @@ class PayloadClassTest {
         listOf(
             PayloadCase.FRIEND_REQUEST, PayloadCase.FRIEND_RESPONSE,
             PayloadCase.DEVICE_ANNOUNCE, PayloadCase.DEVICE_LINK_APPROVAL,
-            PayloadCase.SESSION_RESET, PayloadCase.SYNC_BLOB, PayloadCase.SENT_SYNC,
+            PayloadCase.SESSION_RESET,
         ).forEach {
             assertEquals(PayloadClass.KIT_INTERNAL, classify(it), "$it mutates kit-owned state")
         }

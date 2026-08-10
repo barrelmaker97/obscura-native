@@ -1,10 +1,9 @@
 package com.obscura.kit.managers
 
 import obscura.client.v1.Client.ClientMessage
-import org.json.JSONObject
 
 /**
- * Send text, attachments, model sync, raw messages. Upload/download attachments.
+ * Send application entries and attachments. Upload/download attachments.
  */
 internal class MessagingManager(
     private val ctx: ClientContext
@@ -15,8 +14,6 @@ internal class MessagingManager(
     private val friends get() = ctx.friends
     private val devices get() = ctx.devices
     private val messageSender get() = ctx.messageSender
-    // Compatibility TEXT and SENT_SYNC receive paths populate MessageDomain. New application sends
-    // use the explicit-recipient model path instead of resolving an audience from a username.
 
     suspend fun sendAttachment(friendUsername: String, attachmentId: String, contentKey: ByteArray, nonce: ByteArray, mimeType: String, sizeBytes: Long) {
         val friendData = friends.getAccepted().find { it.username == friendUsername }
@@ -41,24 +38,6 @@ internal class MessagingManager(
         sendAttachment(friendUsername, result.id, encrypted.contentKey, encrypted.nonce, mimeType, encrypted.sizeBytes)
     }
 
-    suspend fun sendModelSync(friendUsername: String, model: String, entryId: String, op: String = "CREATE", data: Map<String, Any?>) {
-        val friendData = friends.getAccepted().find { it.username == friendUsername }
-            ?: throw com.obscura.kit.ObscuraError.NotFriends(friendUsername)
-
-        val opEnum = com.obscura.kit.wire.WireCodec.encodeOp(com.obscura.kit.wire.ModelOp.fromApp(op))
-
-        val msg = ClientMessage.newBuilder()
-            .setTimestamp(System.currentTimeMillis())
-            .setModelSync(obscura.client.v1.modelSync {
-                this.model = model; this.id = entryId; this.op = opEnum
-                timestamp = System.currentTimeMillis()
-                this.data = com.google.protobuf.ByteString.copyFrom(JSONObject(data).toString().toByteArray())
-                authorDeviceId = session.deviceId ?: ""
-            }).build()
-
-        messageSender.sendToAllDevices(friendData.userId, msg)
-    }
-
     /**
      * Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit.
      *
@@ -68,9 +47,7 @@ internal class MessagingManager(
      *
      * **The caller names the recipients** (SPEC §0.4). The kit fans out to every device of every
      * listed userId, plus the author's own *other* devices, and makes **no delivery decision of its
-     * own** — no audience resolution, no reading of `payload` to discover who it is for. That is the
-     * whole difference from [sendModelSync], which takes a `friendUsername`, looks it up, and is
-     * therefore the kit deciding an audience from an application concept.
+     * own** — no audience resolution, no reading of `payload` to discover who it is for.
      *
      * Two properties §5 asks to be proven rather than assumed, both pinned by `EntrySendTests`:
      *
@@ -159,8 +136,6 @@ internal class MessagingManager(
             )
         }
     }
-
-    suspend fun sendRaw(targetUserId: String, msg: ClientMessage) = messageSender.sendToAllDevices(targetUserId, msg)
 
     suspend fun uploadAttachment(data: ByteArray): Pair<String, Long> {
         val result = api.uploadAttachment(data)

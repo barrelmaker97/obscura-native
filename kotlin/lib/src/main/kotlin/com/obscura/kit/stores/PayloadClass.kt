@@ -49,24 +49,27 @@ internal fun classify(arm: PayloadCase): PayloadClass = when (arm) {
     PayloadCase.FRIEND_RESPONSE,
     PayloadCase.DEVICE_ANNOUNCE,
     PayloadCase.DEVICE_LINK_APPROVAL,
-    PayloadCase.SESSION_RESET,
-    PayloadCase.SYNC_BLOB,
-    PayloadCase.SENT_SYNC -> PayloadClass.KIT_INTERNAL
+    PayloadCase.SESSION_RESET -> PayloadClass.KIT_INTERNAL
 
     // Typing indicators. client.proto says "in-memory only", and §4 permits acking these without
     // persistence — the ONLY class for which that is allowed.
     PayloadCase.MODEL_SIGNAL -> PayloadClass.DROPPABLE
-
-    // Compatibility receive path.
-    PayloadCase.TEXT -> PayloadClass.KIT_INTERNAL
 
     // Public senders still emit these arms, so dropping them would destroy the only copy of the
     // attachment key. Remove the senders and receive classification together.
     PayloadCase.CONTENT_REFERENCE,
     PayloadCase.CHUNKED_CONTENT_REFERENCE -> PayloadClass.INBOXED
 
-    // Declared but unsupported. DEVICE_RECOVERY_ANNOUNCE is gated behind the default-off recovery
-    // feature; the remaining arms have no live sender in this kit.
+    // Declared but unsupported — no receive contract, so they are diagnosed, dropped and acked.
+    //
+    // TEXT, SENT_SYNC and SYNC_BLOB were kit-internal while the kit carried its own message model.
+    // That model is gone: the app's data path is MODEL_SYNC into the inbox. They are NOT reclassified
+    // as INBOXED, because §4.2 reserves the inbox for content the app can interpret — the app has no
+    // reader for these arms, so inboxing them would only produce rows it must discard, and would make
+    // the inbox the place removed kit work goes to be forgotten.
+    PayloadCase.TEXT,
+    PayloadCase.SENT_SYNC,
+    PayloadCase.SYNC_BLOB,
     PayloadCase.DEVICE_RECOVERY_ANNOUNCE,
     PayloadCase.HISTORY_CHUNK,
     PayloadCase.SYNC_REQUEST,

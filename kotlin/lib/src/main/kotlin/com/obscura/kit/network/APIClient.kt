@@ -178,55 +178,6 @@ class APIClient(private val baseUrl: String) {
         return executeBytes(request)
     }
 
-    suspend fun uploadBackup(data: ByteArray, etag: String? = null): String? {
-        val builder = Request.Builder()
-            .url("$baseUrl/v1/backup")
-            .post(data.toRequestBody(OCTET_MEDIA))
-            .addHeader("Authorization", "Bearer ${token ?: throw IllegalStateException("No token")}")
-            .addHeader("Content-Length", data.size.toString())
-
-        if (etag != null) {
-            builder.addHeader("If-Match", etag)
-        } else {
-            builder.addHeader("If-None-Match", "*")
-        }
-
-        val response = withContext(Dispatchers.IO) { httpClient.newCall(builder.build()).execute() }
-        if (!response.isSuccessful) throw HttpException(response.code, response.body?.string() ?: "")
-        return response.header("ETag")
-    }
-
-    suspend fun downloadBackup(etag: String? = null): Pair<ByteArray, String?>? {
-        val builder = Request.Builder()
-            .url("$baseUrl/v1/backup")
-            .get()
-            .addHeader("Authorization", "Bearer ${token ?: throw IllegalStateException("No token")}")
-
-        if (etag != null) builder.addHeader("If-None-Match", etag)
-
-        val response = withContext(Dispatchers.IO) { httpClient.newCall(builder.build()).execute() }
-        if (response.code == 304 || response.code == 404) return null
-        if (!response.isSuccessful) throw HttpException(response.code, response.body?.string() ?: "")
-        return Pair(response.body?.bytes() ?: ByteArray(0), response.header("ETag"))
-    }
-
-    suspend fun checkBackup(): BackupCheckResponse {
-        val request = Request.Builder()
-            .url("$baseUrl/v1/backup")
-            .head()
-            .addHeader("Authorization", "Bearer ${token ?: throw IllegalStateException("No token")}")
-            .build()
-
-        val response = withContext(Dispatchers.IO) { httpClient.newCall(request).execute() }
-        if (response.code == 404) return BackupCheckResponse(exists = false, etag = null, lastModified = null)
-        if (!response.isSuccessful) throw HttpException(response.code, "")
-        return BackupCheckResponse(
-            exists = true,
-            etag = response.header("ETag"),
-            lastModified = response.header("Content-Length")?.toLongOrNull()
-        )
-    }
-
     suspend fun fetchGatewayTicket(): String {
         val result = postJson("/v1/gateway/ticket", JSONObject())
         return result.getString("ticket")

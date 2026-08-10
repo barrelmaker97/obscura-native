@@ -2,7 +2,6 @@ package scenarios
 
 import com.obscura.kit.AuthState
 import com.obscura.kit.ConnectionState
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.jupiter.api.Assertions.*
@@ -13,7 +12,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestMethodOrder
 
 /**
- * Edge cases: attachment size limits, verify code stability, profile ORM sync.
+ * Edge cases: attachment size limits and profile entry sync.
  * Full lifecycle with state verification after every mutation.
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
@@ -57,24 +56,6 @@ class EdgeCaseTests {
         alice.disconnect()
     }
 
-    @Test @Order(3)
-    fun `EC-3 - Verify code is stable for same recovery phrase`() = runBlocking {
-        assumeTrue(checkServer())
-
-        val recoveryConfig = com.obscura.kit.ObscuraConfig(API, enableRecoveryPhrase = true)
-        val alice = registerAndConnect("ecv", recoveryConfig)
-        assertEquals(AuthState.AUTHENTICATED, alice.authState.value)
-
-        alice.generateRecoveryPhrase()
-        val code1 = alice.getVerifyCode()
-        val code2 = alice.getVerifyCode()
-        assertNotNull(code1, "Verify code should not be null")
-        assertNotNull(code2, "Verify code should not be null on second call")
-        assertEquals(code1, code2, "Verify code should be deterministic for same recovery phrase")
-
-        alice.disconnect()
-    }
-
     @Test @Order(4)
     fun `EC-4 - Profile data syncs via MODEL_SYNC with full lifecycle`() = runBlocking {
         assumeTrue(checkServer())
@@ -87,8 +68,14 @@ class EdgeCaseTests {
         becomeFriends(alice, bob)
 
         // Alice sends profile MODEL_SYNC
-        alice.sendModelSync(bob.username!!, "profile", "profile_${alice.userId}",
-            data = mapOf("displayName" to "Alice Display", "avatarUrl" to "att-avatar-123"))
+        alice.send(
+            recipientUserIds = listOf(bob.userId!!),
+            modelKey = "profile",
+            entryId = "profile_${alice.userId}",
+            payload = JSONObject(mapOf(
+                "displayName" to "Alice Display", "avatarUrl" to "att-avatar-123",
+            )).toString().toByteArray(),
+        )
 
         // Bob receives and verifies
         val msg = bob.waitForType("MODEL_SYNC")

@@ -62,6 +62,5 @@ class ObscuraConfigTest {
         assertEquals("Kotlin Client", c.deviceName)
         assertNull(c.databasePath, "databasePath null => in-memory sqlite, the safe default")
         assertEquals(500L, c.authRateLimitDelayMs)
-        assertEquals(false, c.enableRecoveryPhrase, "Recovery phrase must be explicit opt-in")
     }
 }

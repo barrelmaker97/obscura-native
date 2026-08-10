@@ -59,8 +59,8 @@ schema parser.** If a task seems to require one, re-check the boundary in
 
 - **Confined coroutines:** Each domain class uses `Dispatchers.Default.limitedParallelism(1)` — Kotlin equivalent of Swift Actors
 - **Auto-session building:** `MessengerDomain.queueMessage()` fetches prekey bundles and builds Signal sessions on demand
-- **StateFlow for UI:** `connectionState`, `authState`, `friendList`,
-  `pendingRequests`, and `conversations`. The current Android bridge observes
+- **StateFlow for UI:** `connectionState`, `authState`, `friendList`, and
+  `pendingRequests`. The current Android bridge observes
   `connectionState`, `authState`, `friendList`, and `incomingMessages`; it reads
   pending requests on demand. `typedEvents` is an optional aggregate stream.
 - **Inbound wake stream:** `incomingMessages` has exactly one app consumer; push draining observes
@@ -83,10 +83,13 @@ POST /v1/gateway/ticket     WebSocket auth ticket
 WS   /v1/gateway            WebSocket (EnvelopeBatch/AckMessage)
 POST /v1/attachments        upload blob
 GET  /v1/attachments/{id}   download blob
-POST /v1/backup             upload encrypted backup
-GET  /v1/backup             download backup
-HEAD /v1/backup             check backup exists
 ```
+
+The server also exposes `/v1/backup` (POST/GET/HEAD). The kit no longer calls
+it: the recovery/backup assembly was removed along with the legacy message
+model it serialized. `crypto/Bip39.kt`, `RecoveryKeys.kt`,
+`VerificationCode.kt` and `BackupCrypto.kt` are kept as tested primitives so
+recovery can be rebuilt on `EntryStore`.
 
 ## Dependencies
 
