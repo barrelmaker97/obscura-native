@@ -1,7 +1,9 @@
 package com.obscura.kit
 
+import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
-import com.obscura.kit.crypto.ParsedSyncBlob
+import com.obscura.kit.crypto.LinkCode
+import com.obscura.kit.crypto.RecoveryKeys
 import com.obscura.kit.crypto.SignalStore
 import com.obscura.kit.crypto.UuidCodec
 import com.obscura.kit.crypto.toBase64
@@ -11,6 +13,7 @@ import com.obscura.kit.managers.SignalKeyUtils.toApiJson
 import com.obscura.kit.network.APIClient
 import com.obscura.kit.network.GatewayConnection
 import com.obscura.kit.network.GatewayState
+import com.obscura.kit.network.LoginResult
 import com.obscura.kit.network.UploadDeviceKeysRequest
 import com.obscura.kit.wire.SignalManager
 import com.obscura.kit.wire.WireCodec
@@ -19,6 +22,7 @@ import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -29,9 +33,12 @@ import kotlinx.coroutines.sync.withLock
 import com.obscura.kit.persistence.NoOpSessionStorage
 import com.obscura.kit.persistence.SessionStorage
 import obscura.client.v1.Client.ClientMessage
-import org.json.JSONObject
+import obscura.client.v1.modelSignal
 import org.signal.libsignal.protocol.ecc.Curve
+import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 data class ReceivedMessage(
@@ -69,7 +76,7 @@ enum class AuthState { LOGGED_OUT, PENDING_APPROVAL, AUTHENTICATED }
  */
 class ObscuraClient(
     val config: ObscuraConfig,
-    externalDriver: app.cash.sqldelight.db.SqlDriver? = null,
+    externalDriver: SqlDriver? = null,
     val sessionStorage: SessionStorage = NoOpSessionStorage
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -85,9 +92,6 @@ class ObscuraClient(
 
     private val _pendingRequests = MutableStateFlow<List<FriendData>>(emptyList())
     val pendingRequests: StateFlow<List<FriendData>> = _pendingRequests
-
-    private val _conversations = MutableStateFlow<Map<String, List<MessageData>>>(emptyMap())
-    val conversations: StateFlow<Map<String, List<MessageData>>> = _conversations
 
     // Optional aggregate stream; incomingMessages remains the app's receive wake-up channel.
     private val _typedEvents = MutableSharedFlow<ObscuraEvent>(extraBufferCapacity = 64)
@@ -105,7 +109,6 @@ class ObscuraClient(
     internal val gateway: GatewayConnection
 
     private val friends: FriendDomain
-    private val messagesDomain: MessageDomain
     internal val devices: DeviceDomain
     internal val messenger: MessengerDomain
 
@@ -132,7 +135,6 @@ class ObscuraClient(
     // Managers
     private val authManager: AuthManager
     private val messageSender: MessageSender
-    private val recoveryManager: RecoveryManager
     private val friendshipManager: FriendshipManager
     private val messagingManager: MessagingManager
     private val deviceManager: DeviceManager
@@ -156,8 +158,6 @@ class ObscuraClient(
         private set(value) { session.registrationId = value }
     val token: String? get() = api.token
 
-    // recoveryPhrase and recoveryPublicKey are managed via session + RecoveryManager
-
     /** Structured logger for security events. Set to a custom implementation for production. */
     var logger: ObscuraLogger = NoOpLogger
 
@@ -171,9 +171,9 @@ class ObscuraClient(
     val incomingMessages = Channel<ReceivedMessage>(capacity = 1000)
 
     /** Debug log — ring buffer of last 200 events. Thread-safe. */
-    val debugLog = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    val debugLog = ConcurrentLinkedDeque<String>()
     private fun log(msg: String) {
-        val ts = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date())
+        val ts = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
         debugLog.addFirst("[$ts] $msg")
         while (debugLog.size > 200) debugLog.removeLast()
     }
@@ -182,18 +182,10 @@ class ObscuraClient(
 
     // M13: Decrypt rate limiting per sender
     private val decryptFailures = mutableMapOf<String, Pair<Int, Long>>() // senderId -> (count, windowStart)
-    private val MAX_DECRYPT_FAILURES = 10
-    private val DECRYPT_FAILURE_WINDOW_MS = 60_000L
 
-    // Keep the single reconnect retry inside the push path's tight OS time budget.
-    private val PUSH_DRAIN_RECONNECT_RETRY_MS = 250L
     private val pushDrainMutex = Mutex()
     private val processedEnvelopeCount = AtomicLong()
     private val lastProcessedEnvelopeAtMs = AtomicLong()
-
-    // Prekey replenishment
-    private val PREKEY_MIN_COUNT = 20L
-    private val PREKEY_REPLENISH_COUNT = 50
 
     init {
         if (externalDriver == null) {
@@ -207,7 +199,6 @@ class ObscuraClient(
             logger.identityChanged(address)
         }
         friends = FriendDomain(db)
-        messagesDomain = MessageDomain(db)
         devices = DeviceDomain(db)
         messenger = MessengerDomain(signalStore, api)
         inbox = InboxDomain(db)
@@ -231,7 +222,6 @@ class ObscuraClient(
             messenger = messenger,
             friends = friends,
             devices = devices,
-            messages = messagesDomain,
             db = db
         )
 
@@ -253,7 +243,6 @@ class ObscuraClient(
                 envelopeJob?.cancel()
                 gateway.disconnect() // fires onStateChanged → _connectionState = DISCONNECTED
                 db.friendQueries.deleteAll()
-                db.messageQueries.deleteAll()
                 db.deviceQueries.deleteAllDevices()
                 db.deviceQueries.deleteIdentity()
                 db.signalKeyQueries.deleteLocalIdentity()
@@ -297,47 +286,7 @@ class ObscuraClient(
             }
         }
 
-        // Ephemeral signal audiences derive from a canonical two-party
-        // conversation id and fail closed when it cannot be resolved.
-        signalManager.sendSignal = { modelName, signalName, signalData ->
-            val kind = WireCodec.encodeSignalKind(signalName)
-            val ctxId = signalData["conversationId"] as? String ?: ""
-            val participants = ctxId.split("_").filter { it.isNotBlank() }
-
-            if (participants.size != 2) {
-                // Refusing to broadcast a 1:1 signal. Dropping an ephemeral typing indicator
-                // costs nothing; guessing an audience for it leaks the conversation.
-                log("SIGNAL DROPPED: model=$modelName kind=$signalName contextId=\"$ctxId\" is not a canonical two-party id")
-                logger.log("signal dropped: contextId is not a canonical two-party value — refusing to broadcast a 1:1 signal")
-            } else {
-                val signalMsg = ClientMessage.newBuilder()
-                    .setTimestamp(System.currentTimeMillis())
-                    .setModelSignal(obscura.client.v1.modelSignal {
-                        model = modelName
-                        this.kind = kind
-                        contextId = ctxId
-                    })
-                    .build()
-                authManager.ensureFreshToken()
-                // Everyone in the conversation except this user. Own devices are deliberately
-                // excluded: a typing indicator is for the other party, and echoing it to your
-                // own devices is noise the app has never asked for.
-                val recipients = participants.filter { it != session.userId }
-                for (userId in recipients) {
-                    var deviceIds = messenger.getDeviceIdsForUser(userId)
-                    if (deviceIds.isEmpty()) {
-                        try { messenger.fetchPreKeyBundles(userId) } catch (e: Exception) { log("prekey bundle fetch failed: ${e.message}") }
-                        deviceIds = messenger.getDeviceIdsForUser(userId)
-                    }
-                    for (devId in deviceIds) {
-                        messenger.queueMessage(devId, signalMsg, userId)
-                    }
-                }
-                messenger.flushMessages()
-            }
-        }
-
-        recoveryManager = RecoveryManager(ctx = ctx, config = config)
+        signalManager.sendSignal = ::deliverSignalToConversation
 
         friendshipManager = FriendshipManager(ctx = ctx)
 
@@ -347,7 +296,6 @@ class ObscuraClient(
 
         deviceManager = DeviceManager(
             ctx = ctx,
-            clientSyncManager = { clientSyncManager },
             announceDevicesCallback = { announceDevices() }
         )
 
@@ -360,7 +308,7 @@ class ObscuraClient(
             db.friendQueries.selectAll()
                 .asFlow()
                 .mapToList(Dispatchers.IO)
-                .map { rows -> rows.map { it.toFriendData() } }
+                .map { rows -> rows.map { it.toObservedFriendData() } }
                 .collect { _friendList.value = it }
         }
 
@@ -368,34 +316,15 @@ class ObscuraClient(
             db.friendQueries.selectByStatus(FriendStatus.PENDING_RECEIVED.value)
                 .asFlow()
                 .mapToList(Dispatchers.IO)
-                .map { rows -> rows.map { it.toFriendData() } }
+                .map { rows -> rows.map { it.toObservedFriendData() } }
                 .collect { _pendingRequests.value = it }
         }
-    }
-
-    private fun com.obscura.kit.Friend.toFriendData(): FriendData {
-        return FriendData(
-            userId = user_id,
-            username = username,
-            status = FriendStatus.entries.find { it.value == status } ?: FriendStatus.PENDING_SENT,
-            devices = try {
-                val arr = org.json.JSONArray(devices)
-                (0 until arr.length()).map { i ->
-                    val obj = arr.getJSONObject(i)
-                    FriendDeviceInfo(
-                        deviceUuid = obj.optString("deviceUuid", ""),
-                        deviceId = obj.optString("deviceId", ""),
-                        deviceName = obj.optString("deviceName", "")
-                    )
-                }
-            } catch (e: Exception) { emptyList() }
-        )
     }
 
     suspend fun register(username: String, password: String) {
         authManager.register(username, password)
     }
-    suspend fun login(username: String, password: String): com.obscura.kit.network.LoginResult {
+    suspend fun login(username: String, password: String): LoginResult {
         val result = authManager.login(username, password)
         return result
     }
@@ -508,8 +437,8 @@ class ObscuraClient(
 
     /** Generate a friend code for sharing. See [FriendCode]. */
     fun friendCode(): String {
-        val uid = userId ?: throw com.obscura.kit.ObscuraError.NotAuthenticated()
-        val uname = username ?: throw com.obscura.kit.ObscuraError.NotAuthenticated()
+        val uid = userId ?: throw ObscuraError.NotAuthenticated()
+        val uname = username ?: throw ObscuraError.NotAuthenticated()
         return FriendCode.encode(uid, uname)
     }
 
@@ -532,7 +461,6 @@ class ObscuraClient(
         _authState.value = AuthState.LOGGED_OUT
         _friendList.value = emptyList()
         _pendingRequests.value = emptyList()
-        _conversations.value = emptyMap()
         db.attachmentCacheQueries.deleteAll()
         sessionStorage.clear()
         log("FULL_LOGOUT complete")
@@ -635,6 +563,9 @@ class ObscuraClient(
      * This observes successful receive-path persistence without consuming [incomingMessages].
      * The app remains that channel's single consumer and owns all notification classification.
      *
+     * If the socket already looked CONNECTED and the drain still yields nothing, it is torn down and
+     * re-established once before giving up — see [shouldForceReconnectAfterPush].
+     *
      * Returns zero after both connection attempts fail, which is indistinguishable from a
      * successful drain that processed no envelopes. Connection failure is logged.
      */
@@ -643,29 +574,76 @@ class ObscuraClient(
 
     private suspend fun performPendingMessageDrain(timeoutMs: Long): Int {
         val processedAtStart = processedEnvelopeCount.get()
+        val startedConnected = _connectionState.value == ConnectionState.CONNECTED
 
-        if (_connectionState.value != ConnectionState.CONNECTED) {
-            // Retry one transient connection failure and log both attempts. The current Int return
-            // cannot distinguish "no envelopes" from "could not connect", so failure must remain
-            // observable through the logger.
-            try {
-                connect()
-            } catch (e: Exception) {
-                log("PUSH DRAIN connect attempt 1 failed: ${e.message}")
-                logger.log("push drain: connect failed (attempt 1/2): ${e.message}")
-                delay(PUSH_DRAIN_RECONNECT_RETRY_MS)
-                try {
-                    connect()
-                } catch (e2: Exception) {
-                    log("PUSH DRAIN connect attempt 2 failed — returning zero: ${e2.message}")
-                    logger.log("push drain ABORTED: could not connect after 2 attempts: ${e2.message}")
-                    return 0
-                }
+        if (!startedConnected && !connectWithOneRetry()) return 0
+
+        val budget = System.currentTimeMillis() + timeoutMs
+        awaitEnvelopes(budget)
+
+        var processed = processedEnvelopeCount.get() - processedAtStart
+
+        // An empty drain on a socket that claimed CONNECTED means the push contradicted the
+        // connection state; [shouldForceReconnectAfterPush] explains why that is the reading.
+        if (shouldForceReconnectAfterPush(
+                processed = processed,
+                startedConnected = startedConnected,
+                lastProcessedAtMs = lastProcessedEnvelopeAtMs.get(),
+                nowMs = System.currentTimeMillis(),
+                recentActivityWindowMs = PUSH_DRAIN_RECENT_ACTIVITY_MS,
+            )
+        ) {
+            log("PUSH DRAIN contradiction — push arrived but nothing drained on a live socket; reconnecting")
+            logger.log("push drain: no envelopes on a connected socket; forcing reconnect")
+
+            // Same budget, not a fresh one: [timeoutMs] is the caller's hard cap, and the first
+            // wait returns after ~500ms of idle, so there is normally plenty of it left.
+            if (forceReconnect()) {
+                awaitEnvelopes(budget)
+                processed = processedEnvelopeCount.get() - processedAtStart
             }
         }
 
-        val deadline = System.currentTimeMillis() + timeoutMs
-        val idleThresholdMs = 500L
+        return processed.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    /**
+     * Tear down a socket we no longer believe in and establish a fresh one.
+     *
+     * [connect] alone cannot do this: it early-returns while the state says CONNECTED, which is
+     * exactly the state we are disputing.
+     */
+    private suspend fun forceReconnect(): Boolean {
+        disconnect()
+        return connectWithOneRetry()
+    }
+
+    /**
+     * Connect, retrying one transient failure. Returns false when both attempts fail.
+     *
+     * The Int return of a drain cannot distinguish "no envelopes" from "could not connect", so
+     * failure has to stay observable through the logger.
+     */
+    private suspend fun connectWithOneRetry(): Boolean {
+        try {
+            connect()
+        } catch (e: Exception) {
+            log("PUSH DRAIN connect attempt 1 failed: ${e.message}")
+            logger.log("push drain: connect failed (attempt 1/2): ${e.message}")
+            delay(PUSH_DRAIN_RECONNECT_RETRY_MS)
+            try {
+                connect()
+            } catch (e2: Exception) {
+                log("PUSH DRAIN connect attempt 2 failed — returning zero: ${e2.message}")
+                logger.log("push drain ABORTED: could not connect after 2 attempts: ${e2.message}")
+                return false
+            }
+        }
+        return true
+    }
+
+    /** Wait for the receive path to go quiet for [PUSH_DRAIN_IDLE_THRESHOLD_MS], or until [deadline]. */
+    private suspend fun awaitEnvelopes(deadline: Long) {
         var lastActivityAt = System.currentTimeMillis()
 
         while (System.currentTimeMillis() < deadline) {
@@ -673,16 +651,12 @@ class ObscuraClient(
             if (observedAt > lastActivityAt) {
                 lastActivityAt = observedAt
             }
-            if (System.currentTimeMillis() - lastActivityAt > idleThresholdMs) {
+            if (System.currentTimeMillis() - lastActivityAt > PUSH_DRAIN_IDLE_THRESHOLD_MS) {
                 break
             } else {
                 delay(50)
             }
         }
-
-        val processed = (processedEnvelopeCount.get() - processedAtStart)
-            .coerceIn(0L, Int.MAX_VALUE.toLong())
-        return processed.toInt()
     }
 
     private var preKeyStatusJob: Job? = null
@@ -704,7 +678,7 @@ class ObscuraClient(
      * messages launched N coroutines that all observed a count below the threshold, all computed
      * the same `highestId + 1` range, and all POSTed 50 keys — N uploads of the same key ids.
      */
-    private val replenishInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val replenishInFlight = AtomicBoolean(false)
 
     private fun checkAndReplenishPreKeys() {
         if (!replenishInFlight.compareAndSet(false, true)) return
@@ -797,8 +771,7 @@ class ObscuraClient(
                     log("RECV ${msg.payloadCase.name} from=${sourceUserId.take(8)} device=${decrypted.senderDeviceId.take(8)} text=${msg.text.text.take(40)}")
 
                     // 2. PERSIST (durable). routeMessage's handlers write to the SQLDelight store
-                    // (e.g. handleTextMessage -> messagesDomain.add -> messageQueries.insert;
-                    // friends.add; inbox.put). This is the source of truth. If it throws, we
+                    // (e.g. inbox.put; friends.add). This is the source of truth. If it throws, we
                     // fall to catch and do NOT ack, so the message survives on the server.
                     // `envelopeId` is the canonical text form of the 16 validated bytes above —
                     // one encoding, so two spellings of one envelope can never produce two rows.
@@ -919,10 +892,7 @@ class ObscuraClient(
             PayloadClass.DROPPABLE, PayloadClass.KIT_INTERNAL -> when (msg.payloadCase) {
                 ClientMessage.PayloadCase.FRIEND_REQUEST -> handleFriendRequest(msg, sourceUserId)
                 ClientMessage.PayloadCase.FRIEND_RESPONSE -> handleFriendResponse(msg, sourceUserId)
-                ClientMessage.PayloadCase.TEXT -> handleTextMessage(msg, sourceUserId, senderDeviceId)
                 ClientMessage.PayloadCase.DEVICE_ANNOUNCE -> handleDeviceAnnounce(msg, sourceUserId)
-                ClientMessage.PayloadCase.SYNC_BLOB -> handleSyncBlob(msg, sourceUserId)
-                ClientMessage.PayloadCase.SENT_SYNC -> handleSentSync(msg, sourceUserId)
                 ClientMessage.PayloadCase.SESSION_RESET ->
                     // Sessions are keyed on device UUID, so clear every session for this user.
                     messenger.getDeviceIdsForUser(sourceUserId).forEach { signalStore.deleteAllSessions(it) }
@@ -1064,18 +1034,6 @@ class ObscuraClient(
         friends.updateDevices(sourceUserId, messenger.knownDevicesFor(sourceUserId))
     }
 
-    private suspend fun handleTextMessage(msg: ClientMessage, sourceUserId: String, senderDeviceId: String?) {
-        val msgId = UUID.randomUUID().toString()
-        val msgData = MessageData(
-            id = msgId, conversationId = sourceUserId,
-            authorDeviceId = senderDeviceId ?: "unknown",
-            content = msg.text.text, timestamp = msg.timestamp,
-            type = WireCodec.decodeType(msg.payloadCase).lowercase()
-        )
-        messagesDomain.add(sourceUserId, msgData)
-        refreshConversation(sourceUserId)
-    }
-
     /**
      * DEVICE_ANNOUNCE — learn a peer's device list, and hold them to a pinned recovery key.
      *
@@ -1117,7 +1075,7 @@ class ObscuraClient(
                 log("DEVICE_ANNOUNCE rejected: revocation/signed announce with no key pinned to check it against")
                 return
             }
-            val payload = com.obscura.kit.crypto.RecoveryKeys.serializeAnnounceForSigning(
+            val payload = RecoveryKeys.serializeAnnounceForSigning(
                 announce.devicesList.map { it.deviceId }, announce.timestamp, announce.isRevocation
             )
             val ok = try {
@@ -1178,28 +1136,6 @@ class ObscuraClient(
         }
     }
 
-    private suspend fun handleSyncBlob(msg: ClientMessage, sourceUserId: String) {
-        if (sourceUserId != userId) return
-        clientSyncManager.processSyncBlob(msg)
-    }
-
-    /**
-     * SENT_SYNC — an echo of a message THIS user sent from another of their own devices.
-     *
-     * Only this account's devices may create a sent-message echo. Accepting it from another user
-     * would let that user create or overwrite locally authored message rows.
-     */
-    internal suspend fun handleSentSync(msg: ClientMessage, sourceUserId: String) {
-        if (sourceUserId != userId) return
-        val ss = msg.sentSync
-        messagesDomain.add(ss.recipientUsername, MessageData(
-            id = ss.messageId, conversationId = ss.recipientUsername,
-            authorDeviceId = deviceId ?: "self", content = String(ss.content.toByteArray()),
-            timestamp = ss.timestamp, type = "text"
-        ))
-        refreshConversation(ss.recipientUsername)
-    }
-
     private suspend fun handleLinkApproval(msg: ClientMessage, sourceUserId: String) {
         // Only accept approval from our own account
         if (sourceUserId != userId) return
@@ -1212,7 +1148,7 @@ class ObscuraClient(
         val pendingChallenge = session.pendingLinkChallenge
         if (pendingChallenge != null && approval.challengeResponse.size() > 0) {
             val received = approval.challengeResponse.toByteArray()
-            if (!com.obscura.kit.crypto.LinkCode.verifyChallenge(pendingChallenge, received)) {
+            if (!LinkCode.verifyChallenge(pendingChallenge, received)) {
                 logger.decryptFailed(sourceUserId, "Link approval challenge mismatch")
                 return
             }
@@ -1246,29 +1182,12 @@ class ObscuraClient(
         _authState.value = AuthState.AUTHENTICATED
     }
 
-    private suspend fun refreshConversation(conversationId: String) {
-        val msgs = messagesDomain.getMessages(conversationId)
-        val current = _conversations.value.toMutableMap()
-        current[conversationId] = msgs
-        _conversations.value = current
-    }
-
-    suspend fun getMessages(conversationId: String, limit: Int = 50): List<MessageData> {
-        val msgs = messagesDomain.getMessages(conversationId, limit)
-        val current = _conversations.value.toMutableMap()
-        current[conversationId] = msgs
-        _conversations.value = current
-        return msgs
-    }
-
-    // Compatibility convenience methods resolve friend usernames. New app
-    // entry sends use explicit recipient user ids through `send` (SPEC §0.4).
+    // Attachment convenience methods resolve friend usernames. App entry sends use explicit
+    // recipient user ids through `send` (SPEC §0.4).
     suspend fun sendAttachment(friendUsername: String, attachmentId: String, contentKey: ByteArray, nonce: ByteArray, mimeType: String, sizeBytes: Long) =
         messagingManager.sendAttachment(friendUsername, attachmentId, contentKey, nonce, mimeType, sizeBytes)
     suspend fun sendEncryptedAttachment(friendUsername: String, plaintext: ByteArray, mimeType: String = "application/octet-stream") =
         messagingManager.sendEncryptedAttachment(friendUsername, plaintext, mimeType)
-    suspend fun sendModelSync(friendUsername: String, model: String, entryId: String, op: String = "CREATE", data: Map<String, Any?>) =
-        messagingManager.sendModelSync(friendUsername, model, entryId, op, data)
     /**
      * Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit,
      * paired with [inbox] on the receive side and [entries] for local storage.
@@ -1276,9 +1195,6 @@ class ObscuraClient(
      * **The caller names the recipients.** The kit fans out to every device of every listed userId
      * plus this user's own *other* devices, and resolves no audience of its own (SPEC §0.4). The
      * sender receives no inbox row, so the app writes its own outgoing entry to [entries].
-     *
-     * Prefer this over `sendModelSync`, which takes a `friendUsername` and looks it up — that is the
-     * kit deciding an audience from an application concept, which SPEC §0.4 forbids.
      */
     suspend fun send(
         recipientUserIds: List<String>,
@@ -1323,10 +1239,57 @@ class ObscuraClient(
      * Auto-expires; a signal with no refresh disappears on its own, which is what makes signals
      * droppable (`KIT_API.md` §4) rather than something the inbox has to carry.
      */
-    fun observeTyping(modelKey: String, conversationId: String): kotlinx.coroutines.flow.Flow<List<String>> =
+    fun observeTyping(modelKey: String, conversationId: String): Flow<List<String>> =
         signalManager.observe(modelKey, "typing", conversationId)
 
-    suspend fun sendRaw(targetUserId: String, msg: ClientMessage) = messagingManager.sendRaw(targetUserId, msg)
+    /**
+     * The send half of [SignalManager] — wired to its `sendSignal` callback in `init`.
+     *
+     * Ephemeral signal audiences derive from a canonical two-party
+     * conversation id and fail closed when it cannot be resolved.
+     */
+    private suspend fun deliverSignalToConversation(
+        modelName: String,
+        signalName: String,
+        signalData: Map<String, Any?>,
+    ) {
+        val kind = WireCodec.encodeSignalKind(signalName)
+        val ctxId = signalData["conversationId"] as? String ?: ""
+        val participants = ctxId.split("_").filter { it.isNotBlank() }
+
+        if (participants.size != 2) {
+            // Refusing to broadcast a 1:1 signal. Dropping an ephemeral typing indicator
+            // costs nothing; guessing an audience for it leaks the conversation.
+            log("SIGNAL DROPPED: model=$modelName kind=$signalName contextId=\"$ctxId\" is not a canonical two-party id")
+            logger.log("signal dropped: contextId is not a canonical two-party value — refusing to broadcast a 1:1 signal")
+        } else {
+            val signalMsg = ClientMessage.newBuilder()
+                .setTimestamp(System.currentTimeMillis())
+                .setModelSignal(modelSignal {
+                    model = modelName
+                    this.kind = kind
+                    contextId = ctxId
+                })
+                .build()
+            authManager.ensureFreshToken()
+            // Everyone in the conversation except this user. Own devices are deliberately
+            // excluded: a typing indicator is for the other party, and echoing it to your
+            // own devices is noise the app has never asked for.
+            val recipients = participants.filter { it != session.userId }
+            for (userId in recipients) {
+                var deviceIds = messenger.getDeviceIdsForUser(userId)
+                if (deviceIds.isEmpty()) {
+                    try { messenger.fetchPreKeyBundles(userId) } catch (e: Exception) { log("prekey bundle fetch failed: ${e.message}") }
+                    deviceIds = messenger.getDeviceIdsForUser(userId)
+                }
+                for (devId in deviceIds) {
+                    messenger.queueMessage(devId, signalMsg, userId)
+                }
+            }
+            messenger.flushMessages()
+        }
+    }
+
     suspend fun uploadAttachment(data: ByteArray): Pair<String, Long> = messagingManager.uploadAttachment(data)
     suspend fun downloadAttachment(id: String): ByteArray = messagingManager.downloadAttachment(id)
     suspend fun downloadDecryptedAttachment(id: String, contentKey: ByteArray, nonce: ByteArray, expectedHash: ByteArray? = null): ByteArray =
@@ -1338,18 +1301,14 @@ class ObscuraClient(
     suspend fun announceDevices() = deviceManager.announceDevices()
     suspend fun announceDeviceRevocation(friendUsername: String, remainingDeviceIds: List<String>) =
         deviceManager.announceDeviceRevocation(friendUsername, remainingDeviceIds)
-    suspend fun revokeDevice(recoveryPhrase: String, targetDeviceId: String) {
-        requireRecoveryEnabled("revokeDevice")
-        deviceManager.revokeDevice(recoveryPhrase, targetDeviceId)
-    }
     /**
      * Generate a link code for this device. Display as QR code or copyable text.
      * The existing device scans this and calls validateAndApproveLink().
      */
     fun generateLinkCode(): String {
-        val did = deviceId ?: throw com.obscura.kit.ObscuraError.NotProvisioned("Not provisioned — call loginAndProvision first")
+        val did = deviceId ?: throw ObscuraError.NotProvisioned("Not provisioned — call loginAndProvision first")
         val identityKey = signalStore.getIdentityKeyPair().publicKey.serialize()
-        val generated = com.obscura.kit.crypto.LinkCode.generate(did, did, identityKey)
+        val generated = LinkCode.generate(did, did, identityKey)
         session.pendingLinkChallenge = generated.challenge
         return generated.code
     }
@@ -1359,7 +1318,7 @@ class ObscuraClient(
      * after scanning QR or receiving pasted code from the new device.
      */
     suspend fun validateAndApproveLink(linkCode: String) {
-        val result = com.obscura.kit.crypto.LinkCode.validate(linkCode)
+        val result = LinkCode.validate(linkCode)
         require(result.valid) { result.error ?: "Invalid link code" }
         val data = result.data!!
         deviceManager.approveLink(data.deviceId, data.challenge)
@@ -1372,31 +1331,81 @@ class ObscuraClient(
         deviceManager.approveLink(newDeviceId, challengeResponse)
     suspend fun takeoverDevice() = deviceManager.takeoverDevice()
 
-    fun generateRecoveryPhrase(): String {
-        requireRecoveryEnabled("generateRecoveryPhrase")
-        return recoveryManager.generateRecoveryPhrase()
-    }
-    fun getRecoveryPhrase(): String? {
-        requireRecoveryEnabled("getRecoveryPhrase")
-        return recoveryManager.getRecoveryPhrase()
-    }
-    fun getVerifyCode(): String? = recoveryManager.getVerifyCode()
-    suspend fun announceRecovery(recoveryPhrase: String, isFullRecovery: Boolean = true) {
-        requireRecoveryEnabled("announceRecovery")
-        recoveryManager.announceRecovery(recoveryPhrase, isFullRecovery)
-    }
-    suspend fun uploadBackup(): String? = recoveryManager.uploadBackup()
-    suspend fun downloadBackup(recoveryPhrase: String? = null): ParsedSyncBlob? = recoveryManager.downloadBackup(recoveryPhrase)
-    suspend fun checkBackup(): Triple<Boolean, String?, Long?> = recoveryManager.checkBackup()
-
-    private fun requireRecoveryEnabled(method: String) {
-        require(config.enableRecoveryPhrase) {
-            "$method requires ObscuraConfig(enableRecoveryPhrase = true)"
-        }
-    }
-
     suspend fun resetSessionWith(targetUserId: String, reason: String = "manual") =
         clientSyncManager.resetSessionWith(targetUserId, reason)
     suspend fun resetAllSessions(reason: String = "manual") = clientSyncManager.resetAllSessions(reason)
-    suspend fun pushHistoryToDevice(targetDeviceId: String) = clientSyncManager.pushHistoryToDevice(targetDeviceId)
+
+    companion object {
+        // See [decryptFailures].
+        private const val MAX_DECRYPT_FAILURES = 10
+        private const val DECRYPT_FAILURE_WINDOW_MS = 60_000L
+
+        // Keep the single reconnect retry inside the push path's tight OS time budget.
+        private const val PUSH_DRAIN_RECONNECT_RETRY_MS = 250L
+
+        /** See [shouldForceReconnectAfterPush]. */
+        private const val PUSH_DRAIN_RECENT_ACTIVITY_MS = 10_000L
+
+        /** See [awaitEnvelopes]. */
+        private const val PUSH_DRAIN_IDLE_THRESHOLD_MS = 500L
+
+        // Prekey replenishment
+        private const val PREKEY_MIN_COUNT = 20L
+        private const val PREKEY_REPLENISH_COUNT = 50
+    }
+}
+
+/**
+ * Should a push-wake drain that came up empty tear down the socket and try again?
+ *
+ * A silent push is not a generic "wake up and look around". The server schedules it when it accepts
+ * a message and cancels it once this device acks, so a push landing here means the server had
+ * something for us and did not see our ack — evidence about the connection, arriving over a
+ * different channel than the connection.
+ *
+ * So when [startedConnected] is true and [processed] is still zero, the local belief "I am connected
+ * and receiving" has been CONTRADICTED. Acting on that is error handling rather than distrust of
+ * state, and it is self-limiting: reconnects are capped by pushes, which are capped by messages that
+ * failed to deliver — zero in a healthy system.
+ *
+ * [recentActivityWindowMs] covers the one benign way to reach zero: the socket delivered the message
+ * just before the scheduled push fired, with our ack still in flight. Reconnecting there is churn.
+ */
+internal fun shouldForceReconnectAfterPush(
+    processed: Long,
+    startedConnected: Boolean,
+    lastProcessedAtMs: Long,
+    nowMs: Long,
+    recentActivityWindowMs: Long,
+): Boolean {
+    if (processed > 0L) return false
+
+    // A socket established for this drain has no staleness to blame, and reconnecting it again
+    // would change nothing.
+    if (!startedConnected) return false
+
+    // Never delivered anything, so it gets no benefit of the doubt.
+    if (lastProcessedAtMs == 0L) return true
+
+    return nowMs - lastProcessedAtMs > recentActivityWindowMs
+}
+
+/**
+ * Row-to-[FriendData] projection for the [ObscuraClient.friendList] / [ObscuraClient.pendingRequests]
+ * StateFlows.
+ *
+ * Distinct from [FriendDomain]'s mapping in exactly one respect: it drops `recoveryPublicKey`.
+ * That is not an oversight. [FriendData] is a data class, so its generated `equals` compares
+ * `ByteArray` by REFERENCE, and SQLDelight hands back a fresh array on every read — carrying the
+ * key here would make each projection unequal to the last, defeating StateFlow conflation and
+ * re-emitting `FriendsUpdated` on every write to the friend table. Nothing observing these flows
+ * reads the key.
+ */
+private fun Friend.toObservedFriendData(): FriendData {
+    return FriendData(
+        userId = user_id,
+        username = username,
+        status = FriendStatus.entries.find { it.value == status } ?: FriendStatus.PENDING_SENT,
+        devices = parseFriendDevices(devices),
+    )
 }

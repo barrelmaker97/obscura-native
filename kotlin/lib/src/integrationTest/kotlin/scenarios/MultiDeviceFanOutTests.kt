@@ -3,7 +3,6 @@ package scenarios
 import com.obscura.kit.ObscuraClient
 import com.obscura.kit.ObscuraConfig
 import com.obscura.kit.AuthState
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -87,10 +86,6 @@ class MultiDeviceFanOutTests {
         assertEquals("MODEL_SYNC", msg2.type)
         assertEquals("Hello both Bobs!", msg2.content())
         assertEquals(alice!!.userId, msg2.sourceUserId)
-
-        // Verify conversations on bob1
-        delay(300)
-        val bob1Msgs = bob1!!.getMessages(alice!!.userId!!)
     }
 
     @Test @Order(3)
@@ -103,10 +98,6 @@ class MultiDeviceFanOutTests {
         assertEquals("MODEL_SYNC", aliceMsg.type)
         assertEquals("From Bob1 to Alice", aliceMsg.content())
         assertEquals(bob1!!.userId, aliceMsg.sourceUserId)
-
-        // Verify Alice's conversations
-        delay(300)
-        val aliceMsgs = alice!!.getMessages(bob1!!.userId!!)
 
         alice!!.disconnect(); bob1!!.disconnect(); bob2!!.disconnect()
     }

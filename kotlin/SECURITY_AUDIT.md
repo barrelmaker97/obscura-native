@@ -3,7 +3,11 @@
 > **Archived, non-normative snapshot (2026-03-28).** This audit describes an
 > earlier architecture. Its line references, finding counts, and status labels
 > are not current, and the ORM/TTL layers discussed below have since been
-> removed. Use `README.md`, `CLAUDE.md`, the pinned protocol contract, and the
+> removed — as have the legacy message model (`MessageDomain`, the `Message`
+> table, the `TEXT`/`SENT_SYNC`/`SYNC_BLOB` handlers) and the recovery/backup
+> assembly (`RecoveryManager`, `SyncBlob`, `revokeDevice`, the `/v1/backup`
+> client). Findings C2, H4 and M1 below concern code that no longer exists.
+> Use `README.md`, `CLAUDE.md`, the pinned protocol contract, and the
 > current code for present behavior and security status.
 
 **Date:** 2026-03-28

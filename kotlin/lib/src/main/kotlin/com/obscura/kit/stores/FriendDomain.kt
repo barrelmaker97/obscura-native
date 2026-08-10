@@ -34,6 +34,28 @@ data class FriendDeviceInfo(
 )
 
 /**
+ * The stored `devices` JSON column as [FriendDeviceInfo]s. Unparsable JSON yields an empty list:
+ * a friend whose device blob is corrupt is still a friend, and failing the whole read would take
+ * the friend graph down with it.
+ */
+internal fun parseFriendDevices(json: String): List<FriendDeviceInfo> {
+    return try {
+        val arr = JSONArray(json)
+        (0 until arr.length()).map { i ->
+            val obj = arr.getJSONObject(i)
+            FriendDeviceInfo(
+                deviceUuid = obj.optString("deviceUuid", ""),
+                deviceId = obj.optString("deviceId", ""),
+                deviceName = obj.optString("deviceName", ""),
+                registrationId = obj.optInt("registrationId", 1)
+            )
+        }
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+/**
  * FriendDomain - Confined coroutines. Manages friend state + device lists.
  */
 class FriendDomain internal constructor(private val db: ObscuraDatabase) {
@@ -139,25 +161,8 @@ class FriendDomain internal constructor(private val db: ObscuraDatabase) {
             userId = user_id,
             username = username,
             status = FriendStatus.entries.find { it.value == status } ?: FriendStatus.PENDING_SENT,
-            devices = parseDevices(devices),
+            devices = parseFriendDevices(devices),
             recoveryPublicKey = recovery_public_key,
         )
-    }
-
-    private fun parseDevices(json: String): List<FriendDeviceInfo> {
-        return try {
-            val arr = JSONArray(json)
-            (0 until arr.length()).map { i ->
-                val obj = arr.getJSONObject(i)
-                FriendDeviceInfo(
-                    deviceUuid = obj.optString("deviceUuid", ""),
-                    deviceId = obj.optString("deviceId", ""),
-                    deviceName = obj.optString("deviceName", ""),
-                    registrationId = obj.optInt("registrationId", 1)
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
     }
 }

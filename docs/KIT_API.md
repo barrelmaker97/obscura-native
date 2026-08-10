@@ -184,9 +184,9 @@ attribution before applying it. Payload fields never override either source.
 | `DEVICE_ANNOUNCE` | kit-internal | kit-internal | Linked-device state. |
 | `DEVICE_LINK_APPROVAL` | kit-internal | unimplemented | Swift has no receive handler. |
 | `SESSION_RESET` | kit-internal | kit-internal | Signal session repair. |
-| `SYNC_BLOB` | kit-internal | kit-internal | Device history transfer. |
-| `SENT_SYNC` | kit-internal | kit-internal | Legacy text self-sync. |
-| `TEXT` | kit-internal | kit-internal | Legacy text receive path. |
+| `SYNC_BLOB` | unimplemented | kit-internal | **Diverged.** Kotlin removed the handler with its message model. |
+| `SENT_SYNC` | unimplemented | kit-internal | **Diverged.** Same removal. |
+| `TEXT` | unimplemented | kit-internal | **Diverged.** Same removal. |
 | `MODEL_SIGNAL` | droppable | droppable | Ephemeral typing/read signal. |
 | `FRIEND_SYNC` | unimplemented | unimplemented | No live sender. |
 | `DEVICE_RECOVERY_ANNOUNCE` | unimplemented | unimplemented | Sender support is incomplete. |
@@ -198,6 +198,12 @@ attribution before applying it. Payload fields never override either source.
 
 Unimplemented arms are not silently treated as success: the kit emits its
 normal diagnostic/security signal before acknowledging them.
+
+The three diverged rows are a real gap, not a documented equivalence. Kotlin
+deleted the app-shaped message model those arms wrote to, so it has nothing to
+apply them with; Swift still applies them. Neither kit inboxes them, so no
+app-visible row differs — the divergence is confined to kit-internal state.
+Swift must follow before §4.2 is a cross-kit contract again.
 
 ### 4.3 Compatibility rule
 
@@ -244,8 +250,10 @@ enough detail for the app to present per-recipient failure. Callers must not
 interpret a successful method return as proof that every device received the
 message.
 
-Legacy text/model convenience methods remain compatibility surfaces, not the
-model for new app integration.
+This explicit-audience send is the only app payload send Kotlin exposes. The
+username-resolving convenience senders are gone; `sendAttachment` /
+`sendEncryptedAttachment` still take a friend username and are the remaining
+exception.
 
 ### 5.2 Attachments
 
@@ -394,8 +402,13 @@ These constraints affect compatibility work:
 - Device announcements have no replay protection.
 - Remote device revocation is not implemented.
 - Several declared proto arms are unimplemented (§4.2).
-- `CONTENT_REFERENCE`, `CHUNKED_CONTENT_REFERENCE`, `TEXT`, and `SENT_SYNC`
-  remain live compatibility surfaces while released clients can send them.
+- `CONTENT_REFERENCE` and `CHUNKED_CONTENT_REFERENCE` remain live compatibility
+  surfaces while released clients can send them.
+- `TEXT`, `SENT_SYNC` and `SYNC_BLOB` are classified differently by the two
+  kits (§4.2). Kotlin drops and acks them; Swift still handles them.
+- Encrypted backup (`/v1/backup`) and BIP39 recovery are not implemented in
+  Kotlin. The crypto primitives are retained and unit-tested; nothing calls
+  them.
 - Partial-recipient send failures are not visible to the application.
 - Consumed inbox envelope IDs have no durable deduplication tombstone.
 

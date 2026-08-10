@@ -88,8 +88,6 @@ class PixFlowTests {
         assertEquals(0xD8.toByte(), aliceDownloaded[1])
         assertEquals(bobJpeg.size, aliceDownloaded.size)
 
-        // CONTENT_REFERENCE messages are delivered via events, not stored in conversations
-        // (conversations store TEXT/IMAGE only — attachments are referenced, not inlined)
         // Verify the exchange completed by checking both downloads succeeded above
 
         alice.disconnect()

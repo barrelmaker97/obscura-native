@@ -51,7 +51,7 @@ class MultiDeviceLinkingTests {
     }
 
     @Test @Order(3)
-    fun `Messaging works after befriend - verify conversations state`() = runBlocking {
+    fun `Messaging works after befriend`() = runBlocking {
         need()
         val alice = registerAndConnect("mdl_conv_a")
         val bob = registerAndConnect("mdl_conv_b")

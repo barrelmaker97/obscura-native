@@ -102,5 +102,3 @@ data class LoginResult(
 data class ProvisionResponse(val token: String, val refreshToken: String?, val deviceId: String)
 
 data class AttachmentUploadResponse(val id: String, val expiresAt: Long)
-
-data class BackupCheckResponse(val exists: Boolean, val etag: String?, val lastModified: Long?)

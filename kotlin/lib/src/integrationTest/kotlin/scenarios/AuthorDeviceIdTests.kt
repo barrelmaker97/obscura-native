@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test
  *
  * This test asserts that a message Alice receives from Bob is attributed to Bob's REAL DEVICE
  * UUID — both on the wake-up (`ReceivedMessage.senderDeviceId`) and on the durably persisted
- * message (`MessageData.authorDeviceId`) — and that it is emphatically NOT Bob's user id.
+ * inbox row (`InboxRecord.senderDeviceId`) — and that it is emphatically NOT Bob's user id.
  */
 class AuthorDeviceIdTests {
 
@@ -55,10 +55,8 @@ class AuthorDeviceIdTests {
         // The DURABLY PERSISTED record carries the honest device id too — and THIS is the assertion
         // that matters, because the wake-up above is droppable while the row is the delivery path.
         //
-        // It reads the INBOX rather than `getMessages`: a MODEL_SYNC never reaches `MessageDomain`
-        // (only the compatibility TEXT arm and SENT_SYNC do), and `senderDeviceId` on the row is the
-        // address of the Signal session that decrypted it — cryptographic attribution, SPEC §0.10
-        // rule 4.
+        // `senderDeviceId` on the row is the address of the Signal session that decrypted it —
+        // cryptographic attribution, SPEC §0.10 rule 4.
         val row = alice.inbox.peek(200).find {
             org.json.JSONObject(String(it.payload)).optString("content", "") == "attribute me correctly"
         }
