@@ -29,6 +29,34 @@ The rule that governs this repo:
 schema parser.** Re-check `NATIVE_CONTRACT.md` §0 and the shipping app before expanding the
 entry store beyond `KIT_API.md` §8.1.
 
+## Code in this kit that is scheduled for DELETION — do not maintain it
+
+The Kotlin kit removed two subsystems that this kit still carries. **They are not
+reference implementations and they are not features.** If a task appears to
+require improving, testing, documenting, or porting any of the following, the
+task is wrong — the answer is to delete them, mirroring
+`barrelmaker97/obscura-native#12`.
+
+| In this kit | Status |
+|---|---|
+| `Message`, `MessageActor` (in `Stores/MessageStore.swift` — the file name does not match its types), `getMessages` | An app-shaped message model living in native. `MODEL_SYNC` into the inbox is the app's only data path. |
+| `Crypto/SyncBlob.swift` | Serializes the above. Its "backup" carries the friend list and nothing else — it never touches `EntryStore`, where the user's actual data lives. |
+| `uploadBackup`, `downloadBackup`, `checkBackup`, `generateRecoveryPhrase`, `getRecoveryPhrase`, `announceRecovery` | Unreachable from the app: no bridge method calls them. Kotlin's equivalents uploaded UNENCRYPTED when no recovery key was set; this kit does not even have Kotlin's default-off `enableRecoveryPhrase` gate. |
+| `sendModelSync`, `sendRawMessage` | Username-resolving senders. Resolving an audience from an application concept is a `NATIVE_CONTRACT.md` §0.4 violation. |
+| `Crypto/BackupCrypto.swift`, `Crypto/VerificationCode.swift` | Already dead — zero references in `Sources/`; only tests use them. |
+
+**Keep** `Bip39`, `RecoveryKeys`, `VerificationCode` and `BackupCrypto` as
+primitives if recovery is rebuilt on `EntryStore` later — the Kotlin side kept
+exactly those. Delete the assembly, not the crypto.
+
+**Keep** the inbound trust-on-first-use path (`DEVICE_ANNOUNCE` verification and
+the pinned recovery key). It fails closed and is hard to re-add correctly.
+
+Until this lands, `KIT_API.md` §4.2 is not a cross-kit contract: `TEXT`,
+`SENT_SYNC` and `SYNC_BLOB` are classified differently by the two kits, declared
+in `Tests/ScenarioTests/PayloadClassTests.swift`'s `divergesFromKotlin`. Those
+three entries come out when this deletion lands.
+
 ## Current constraints
 
 - No Notification Service Extension exists. Shared database, key, and session
