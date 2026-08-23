@@ -32,9 +32,10 @@ public struct ReceivedMessage: Sendable {
     public let sourceUserId: String
     public let senderDeviceId: String?
     public let timestamp: UInt64
-    public let rawBytes: Data
     /// For MODEL_SYNC messages: the opaque model key; nil for non-sync types.
     public let model: String?
+    /// Test-only access to the decoded wire message. Applications drain the durable inbox.
+    let rawBytes: Data
 }
 
 private actor ProcessedEnvelopeTracker {
@@ -1535,7 +1536,7 @@ public class ObscuraClient {
 
     /// Wait for next incoming message. Uses buffered queue — messages processed by
     /// the envelope loop are queued here, so timing doesn't matter.
-    public func waitForMessage(timeout: TimeInterval = 10) async throws -> ReceivedMessage {
+    func waitForMessage(timeout: TimeInterval = 10) async throws -> ReceivedMessage {
         // Check buffer first
         if !messageQueue.isEmpty {
             return messageQueue.removeFirst()
@@ -1738,11 +1739,11 @@ public class ObscuraClient {
                 sourceUserId: sourceUserId,
                 senderDeviceId: senderDeviceId,
                 timestamp: clientMsg.timestamp,
-                rawBytes: Data(plaintext),
                 model: {
                     if case .modelSync? = clientMsg.payload { return clientMsg.modelSync.model }
                     return nil
-                }()
+                }(),
+                rawBytes: Data(plaintext)
             )
             if isNew {
                 emit(received)

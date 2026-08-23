@@ -41,12 +41,15 @@ import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-data class ReceivedMessage(
+class ReceivedMessage internal constructor(
     val type: String,
     val username: String = "",
     val sourceUserId: String = "",
     val senderDeviceId: String? = null,
-    val raw: ClientMessage? = null
+    /** For MODEL_SYNC messages: the opaque model key; null for non-sync types. */
+    val model: String? = null,
+    /** Test-only access to the decoded wire message. Applications drain the durable inbox. */
+    internal val raw: ClientMessage? = null,
 )
 
 /**
@@ -791,6 +794,9 @@ class ObscuraClient(
                         username = username,
                         sourceUserId = sourceUserId,
                         senderDeviceId = decrypted.senderDeviceId,
+                        model = msg.takeIf {
+                            it.payloadCase == ClientMessage.PayloadCase.MODEL_SYNC
+                        }?.modelSync?.model?.takeIf(String::isNotBlank),
                         raw = msg
                     )
 
