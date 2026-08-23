@@ -48,8 +48,6 @@ class InboxTests {
 
         assertEquals("MODEL_SYNC", row.kind)
         assertEquals("story", row.modelKey, "modelKey is carried opaquely so the app can merge")
-        // The app-facing spelling is shared by both bridges, not the proto's OP_CREATE spelling.
-        assertEquals("CREATE", row.op)
         // Identity comes from the envelope and the Signal session, never from the payload
         // (SPEC §0.5, §0.10). This is the assertion a unit test cannot make honestly.
         assertEquals(alice.userId, row.senderUserId)

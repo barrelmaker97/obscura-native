@@ -18,7 +18,7 @@ internal class MessagingManager(
      * Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit.
      *
      * ```
-     * send(recipientUserIds, modelKey, entryId, op, sentAt, payload)
+     * send(recipientUserIds, modelKey, entryId, sentAt, payload)
      * ```
      *
      * **The caller names the recipients** (SPEC §0.4). The kit fans out to every device of every
@@ -42,7 +42,6 @@ internal class MessagingManager(
         recipientUserIds: List<String>,
         modelKey: String,
         entryId: String,
-        op: String,
         sentAt: Long,
         payload: ByteArray,
     ) {
@@ -51,7 +50,6 @@ internal class MessagingManager(
             .setModelSync(obscura.client.v1.modelSync {
                 this.model = modelKey
                 this.id = entryId
-                this.op = com.obscura.kit.wire.WireCodec.encodeOp(com.obscura.kit.wire.ModelOp.fromApp(op))
                 timestamp = sentAt
                 this.data = com.google.protobuf.ByteString.copyFrom(payload)
             }).build()

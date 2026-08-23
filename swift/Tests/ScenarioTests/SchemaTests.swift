@@ -37,7 +37,7 @@ final class SchemaTests: XCTestCase {
         XCTAssertEqual(try columns(of: "inbox_rows", in: db), [
             "id:INTEGER", "envelope_id:TEXT", "kind:TEXT", "received_at:INTEGER",
             "sender_user_id:TEXT", "sender_device_id:TEXT", "sender_display_name:TEXT",
-            "model_key:TEXT", "entry_id:TEXT", "op:TEXT", "sent_at:INTEGER", "payload:BLOB",
+            "model_key:TEXT", "entry_id:TEXT", "sent_at:INTEGER", "payload:BLOB",
         ])
     }
 

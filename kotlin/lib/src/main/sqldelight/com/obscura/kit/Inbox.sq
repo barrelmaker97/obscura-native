@@ -36,9 +36,8 @@
 --                       never from the payload. NULL when the sender is not a friend.
 --   model_key           }
 --   entry_id            } ModelSync-derived, so NULL for every other kind — including an unknown
---   op                  } arm, which has no ModelSync to derive them from (§4.1). Opaque: stored
---   sent_at             } and echoed, never acted on. sent_at is clamped per SPEC §2.4 before it
---                       } gets here.
+--   sent_at             } arm, which has no ModelSync to derive them from (§4.1). sent_at is
+--                       } clamped per SPEC §2.4 before it gets here.
 --   payload             Opaque bytes. The kit MUST NOT parse this (SPEC §0.4).
 CREATE TABLE IF NOT EXISTS InboxRow (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +49,6 @@ CREATE TABLE IF NOT EXISTS InboxRow (
     sender_display_name TEXT,
     model_key TEXT,
     entry_id TEXT,
-    op TEXT,
     sent_at INTEGER,
     payload BLOB NOT NULL
 );
@@ -65,8 +63,8 @@ CREATE INDEX IF NOT EXISTS inbox_id_idx ON InboxRow(id);
 insertRow:
 INSERT OR IGNORE INTO InboxRow(
     envelope_id, kind, received_at, sender_user_id, sender_device_id, sender_display_name,
-    model_key, entry_id, op, sent_at, payload
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    model_key, entry_id, sent_at, payload
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- Whether a given envelope is already stored. This is what `put` checks BEFORE and AFTER its
 -- insert, instead of inferring "was a row added" from a row count: INSERT OR IGNORE suppresses every

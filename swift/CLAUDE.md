@@ -13,7 +13,7 @@ Read these first:
   migration history.
 
 The current app-facing surface is
-`client.send(to:modelKey:entryId:op:sentAt:payload:)`, the durable
+`client.send(to:modelKey:entryId:sentAt:payload:)`, the durable
 `client.inbox`, and opaque `client.entries` storage. Merge, audience resolution,
 schemas, queries, expiry, and notification policy live in `obscura-pix`.
 

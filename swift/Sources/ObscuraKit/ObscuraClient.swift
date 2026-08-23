@@ -1258,14 +1258,12 @@ public class ObscuraClient {
         to recipientUserIds: [String],
         modelKey: String,
         entryId: String,
-        op: String = "CREATE",
         sentAt: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000),
         payload: Data
     ) async throws {
         var sync = Obscura_Client_V1_ModelSync()
         sync.model = modelKey
         sync.id = entryId
-        sync.op = try WireCodec.encodeOp(op)
         sync.timestamp = sentAt
         sync.data = payload
 
@@ -1988,11 +1986,6 @@ public class ObscuraClient {
                 // ModelSync-derived, so nil for an unknown arm — there is nothing to derive from.
                 modelKey: isModelSync ? sync.model : nil,
                 entryId: isModelSync ? sync.id : nil,
-                // `WireCodec.decodeOp`, not the raw enum: the inbox is read by the app across a
-                // bridge, so this must be the app-facing CREATE/UPDATE/DELETE that §3.1 specifies.
-                // Interpolating the generated enum would give
-                // Swift's `opCreate` against Kotlin's `OP_CREATE` — one wire, two spellings.
-                op: isModelSync ? WireCodec.decodeOp(sync.op) : nil,
                 sentAt: isModelSync ? clampFutureTimestamp(sync.timestamp) : nil,
                 // Opaque bytes. For an unknown arm this is the whole serialized message, because the
                 // kit cannot know which sub-field would have been the payload.
@@ -2217,7 +2210,6 @@ public class ObscuraClient {
         case timeout
         case notFriends(String)
         case deviceLinkFailed(String)
-        case invalidArgument(String)
         /// A `send` reached none of its named recipients. Distinct from a PARTIAL failure, which is
         /// logged and survivable — this one means the app believes it sent something that got
         /// nowhere. Matches Kotlin's `ObscuraError.SendFailed` and the bridge's `SEND_FAILED`.
@@ -2234,7 +2226,6 @@ public class ObscuraClient {
             case .timeout: return "TIMEOUT"
             case .notFriends: return "NOT_FRIENDS"
             case .deviceLinkFailed: return "DEVICE_LINK_FAILED"
-            case .invalidArgument: return "INVALID_ARGUMENT"
             case .sendFailed: return "SEND_FAILED"
             }
         }
@@ -2247,7 +2238,6 @@ public class ObscuraClient {
             case .timeout: return "Operation timed out"
             case .notFriends(let userId): return "Not friends with \(userId)"
             case .deviceLinkFailed(let reason): return "Device link failed: \(reason)"
-            case .invalidArgument(let reason): return reason
             case .sendFailed(let msg): return "Send failed: \(msg)"
             }
         }

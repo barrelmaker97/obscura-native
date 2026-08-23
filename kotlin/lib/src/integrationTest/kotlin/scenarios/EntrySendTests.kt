@@ -27,7 +27,6 @@ class EntrySendTests {
             recipientUserIds = listOf(bob.userId!!),
             modelKey = "directMessage",
             entryId = "dm_1",
-            op = "CREATE",
             payload = payload,
         )
         delay(3000)
@@ -36,7 +35,6 @@ class EntrySendTests {
         assertEquals(1, rows.size)
         assertEquals("directMessage", rows[0].modelKey)
         assertEquals("dm_1", rows[0].entryId)
-        assertEquals("CREATE", rows[0].op)
         assertArrayEquals(payload, rows[0].payload,
             "the kit never opens the payload, so it must arrive byte-identical")
         assertEquals(alice.userId, rows[0].senderUserId)

@@ -941,11 +941,6 @@ class ObscuraClient(
                 // ModelSync-derived, so null for an unknown arm — there is nothing to derive from.
                 modelKey = if (isModelSync) sync.model else null,
                 entryId = if (isModelSync) sync.id else null,
-                // `WireCodec.decodeOp`, not the raw enum name: the inbox is read by the app
-                // across a bridge, so this must be the app-facing CREATE/UPDATE/DELETE that
-                // KIT_API.md §3.1 specifies. `sync.op.name`
-                // gives the PROTO spelling `OP_CREATE`, which no other surface uses.
-                op = if (isModelSync) WireCodec.decodeOp(sync.op).name else null,
                 sentAt = if (isModelSync) clampFutureTimestamp(sync.timestamp) else null,
                 // Opaque bytes. For an unknown arm this is the whole serialized message, because the
                 // kit cannot know which sub-field would have been the payload.
@@ -1197,10 +1192,9 @@ class ObscuraClient(
         recipientUserIds: List<String>,
         modelKey: String,
         entryId: String,
-        op: String = "CREATE",
         sentAt: Long = System.currentTimeMillis(),
         payload: ByteArray,
-    ) = messagingManager.sendEntry(recipientUserIds, modelKey, entryId, op, sentAt, payload)
+    ) = messagingManager.sendEntry(recipientUserIds, modelKey, entryId, sentAt, payload)
 
     // ── Ephemeral signals (typing, read receipts) ────────────────────────────────────────────
     //

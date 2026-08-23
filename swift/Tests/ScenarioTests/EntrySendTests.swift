@@ -26,7 +26,7 @@ final class EntrySendTests: XCTestCase {
 
         let payload = Data(#"{"content":"opaque to the kit","expiresAt":123}"#.utf8)
         try await alice.client.send(
-            to: [bob.userId!], modelKey: "directMessage", entryId: "dm_1", op: "CREATE", payload: payload
+            to: [bob.userId!], modelKey: "directMessage", entryId: "dm_1", payload: payload
         )
         _ = try await bob.waitForMessage(timeout: 10)
 
@@ -34,7 +34,6 @@ final class EntrySendTests: XCTestCase {
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.modelKey, "directMessage")
         XCTAssertEqual(rows.first?.entryId, "dm_1")
-        XCTAssertEqual(rows.first?.op, "CREATE")
         XCTAssertEqual(rows.first?.payload, payload,
                        "the kit never opens the payload, so it must arrive byte-identical")
         XCTAssertEqual(rows.first?.senderUserId, alice.userId)

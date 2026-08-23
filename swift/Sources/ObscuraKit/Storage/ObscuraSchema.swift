@@ -106,7 +106,6 @@ public enum ObscuraSchema {
                     sender_display_name TEXT,
                     model_key TEXT,
                     entry_id TEXT,
-                    op TEXT,
                     sent_at INTEGER,
                     payload BLOB NOT NULL
                 )

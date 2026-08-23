@@ -2,9 +2,8 @@ import Foundation
 
 /// Single source of truth for the wire <-> app-facing-form mappings.
 ///
-/// The message kind is the `ClientMessage.payload` oneof arm; `ModelSync.Op` and
-/// `SignalKind` carry `OP_`/`SIGNAL_KIND_` prefixes and move CREATE/typing off
-/// wire-0 (so 0 can mean UNSPECIFIED). A kit that maps these inconsistently
+/// The message kind is the `ClientMessage.payload` oneof arm; `SignalKind`
+/// carries a `SIGNAL_KIND_` prefix. A kit that maps these inconsistently
 /// silently breaks cross-platform interop, so the mappings are consolidated here
 /// and pinned by `protocol/conformance/wire.json` (see NATIVE_CONTRACT §3).
 /// Mirrors the Kotlin kit's `WireCodec`.
@@ -13,25 +12,6 @@ import Foundation
 /// `internal` visibility, so this codec (which references them) is internal too.
 /// Tests reach it via `@testable import ObscuraKit`.
 enum WireCodec {
-
-    // MARK: ModelSync.Op <-> app string ("CREATE" / "UPDATE")
-
-    static func encodeOp(_ app: String) throws -> Obscura_Client_V1_ModelSync.Op {
-        switch app.uppercased() {
-        case "UPDATE": return .update
-        case "CREATE": return .create
-        default: throw ObscuraClient.ObscuraError.invalidArgument("Unsupported model op: \(app)")
-        }
-    }
-
-    static func decodeOp(_ op: Obscura_Client_V1_ModelSync.Op) -> String {
-        switch op {
-        case .update: return "UPDATE"
-        case .create: return "CREATE"
-        // OP_UNSPECIFIED (wire 0) is never sent by a conforming kit; treat as CREATE.
-        default: return "CREATE"
-        }
-    }
 
     // MARK: SignalKind <-> app string ("typing" / "stoppedTyping")
 

@@ -86,7 +86,6 @@ Each inbox row exposes:
 | `senderDisplayName` | nullable string | Local trusted display label when available. |
 | `modelKey` | nullable string | Declared `ModelSync.model`; null for other arms. |
 | `entryId` | nullable string | Declared `ModelSync.id`; null for other arms. |
-| `op` | nullable string | Declared `ModelSync.op`; null for other arms. |
 | `sentAt` | nullable integer | Declared timestamp, clamped per `NATIVE_CONTRACT.md` §2.4. |
 | `payload` | bytes | Opaque serialized payload bytes. |
 
@@ -198,7 +197,6 @@ send(
   recipientUserIds,
   modelKey,
   entryId,
-  op,
   sentAt,
   payloadBytes
 )

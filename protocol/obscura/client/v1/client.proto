@@ -84,22 +84,13 @@ message DeviceAnnounce {
 }
 
 message ModelSync {
-  reserved 6, 7;
-  reserved "signature", "author_device_id";
+  reserved 3, 6, 7;
+  reserved "op", "signature", "author_device_id";
 
   string model = 1;
   string id = 2;
-  Op op = 3;
   uint64 timestamp = 4;
   bytes data = 5;
-
-  enum Op {
-    OP_UNSPECIFIED = 0;
-    OP_UPDATE = 1;
-    reserved 2;
-    reserved "OP_DELETE";
-    OP_CREATE = 3;
-  }
 }
 
 enum SignalKind {

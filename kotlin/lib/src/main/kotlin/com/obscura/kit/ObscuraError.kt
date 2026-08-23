@@ -31,8 +31,4 @@ sealed class ObscuraError(val code: String, message: String, cause: Throwable? =
     class SendFailed(message: String) :
         ObscuraError("SEND_FAILED", message)
 
-    /** A caller supplied a value outside the public kit contract. */
-    class InvalidArgument(message: String) :
-        ObscuraError("INVALID_ARGUMENT", message)
-
 }

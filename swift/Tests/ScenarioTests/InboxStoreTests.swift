@@ -31,7 +31,6 @@ final class InboxStoreTests: XCTestCase {
             senderDisplayName: "alice",
             modelKey: modelKey,
             entryId: "entry_1",
-            op: "OP_CREATE",
             sentAt: 1_700_000_000_000,
             payload: payload
         )
@@ -275,7 +274,6 @@ final class InboxStoreTests: XCTestCase {
         XCTAssertEqual(row.senderDisplayName, "alice")
         XCTAssertEqual(row.modelKey, "directMessage")
         XCTAssertEqual(row.entryId, "entry_1")
-        XCTAssertEqual(row.op, "OP_CREATE")
         XCTAssertEqual(row.payload, payload)
     }
 
@@ -301,7 +299,6 @@ final class InboxStoreTests: XCTestCase {
         XCTAssertEqual(row.kind, "UNKNOWN_ARM")
         XCTAssertNil(row.modelKey)
         XCTAssertNil(row.entryId)
-        XCTAssertNil(row.op)
         XCTAssertNil(row.sentAt)
     }
 

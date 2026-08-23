@@ -2,7 +2,7 @@
 
 Auth, social graph, device management, and opaque entry transport. Entries
 reach the app through `client.inbox`, are stored via `client.entries`, and are
-sent with `client.send(to:modelKey:entryId:op:sentAt:payload:)`.
+sent with `client.send(to:modelKey:entryId:sentAt:payload:)`.
 
 ## Client Initialization
 

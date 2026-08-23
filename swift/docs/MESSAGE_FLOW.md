@@ -5,7 +5,7 @@
 ```text
 obscura-pix resolves the audience and serializes opaque payload bytes
     ↓
-ObscuraClient.send(to:modelKey:entryId:op:sentAt:payload:)
+ObscuraClient.send(to:modelKey:entryId:sentAt:payload:)
     ↓
 fan out to every device of each caller-named user
     + own other devices

@@ -42,7 +42,6 @@ client.send(
     recipientUserIds = listOf(friendUserId),
     modelKey = "pix",
     entryId = java.util.UUID.randomUUID().toString(),
-    op = "CREATE",
     payload = """{"caption":"hello"}""".toByteArray(),
 )
 

@@ -313,51 +313,11 @@ nonisolated struct Obscura_Client_V1_ModelSync: Sendable {
 
   var id: String = String()
 
-  var op: Obscura_Client_V1_ModelSync.Op = .unspecified
-
   var timestamp: UInt64 = 0
 
   var data: Data = Data()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  nonisolated enum Op: SwiftProtobuf.Enum, Swift.CaseIterable {
-    typealias RawValue = Int
-    case unspecified // = 0
-    case update // = 1
-    case create // = 3
-    case UNRECOGNIZED(Int)
-
-    init() {
-      self = .unspecified
-    }
-
-    init?(rawValue: Int) {
-      switch rawValue {
-      case 0: self = .unspecified
-      case 1: self = .update
-      case 3: self = .create
-      default: self = .UNRECOGNIZED(rawValue)
-      }
-    }
-
-    var rawValue: Int {
-      switch self {
-      case .unspecified: return 0
-      case .update: return 1
-      case .create: return 3
-      case .UNRECOGNIZED(let i): return i
-      }
-    }
-
-    // The compiler won't synthesize support with the UNRECOGNIZED case.
-    static let allCases: [Obscura_Client_V1_ModelSync.Op] = [
-      .unspecified,
-      .update,
-      .create,
-    ]
-
-  }
 
   init() {}
 }
@@ -829,7 +789,7 @@ nonisolated extension Obscura_Client_V1_DeviceAnnounce: SwiftProtobuf.Message, S
 
 nonisolated extension Obscura_Client_V1_ModelSync: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ModelSync"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}model\0\u{1}id\0\u{1}op\0\u{1}timestamp\0\u{1}data\0\u{b}signature\0\u{b}author_device_id\0\u{c}\u{6}\u{1}\u{c}\u{7}\u{1}")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}model\0\u{1}id\0\u{2}\u{2}timestamp\0\u{1}data\0\u{b}op\0\u{b}signature\0\u{b}author_device_id\0\u{c}\u{3}\u{1}\u{c}\u{6}\u{1}\u{c}\u{7}\u{1}")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -839,7 +799,6 @@ nonisolated extension Obscura_Client_V1_ModelSync: SwiftProtobuf.Message, SwiftP
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.model) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.id) }()
-      case 3: try { try decoder.decodeSingularEnumField(value: &self.op) }()
       case 4: try { try decoder.decodeSingularUInt64Field(value: &self.timestamp) }()
       case 5: try { try decoder.decodeSingularBytesField(value: &self.data) }()
       default: break
@@ -854,9 +813,6 @@ nonisolated extension Obscura_Client_V1_ModelSync: SwiftProtobuf.Message, SwiftP
     if !self.id.isEmpty {
       try visitor.visitSingularStringField(value: self.id, fieldNumber: 2)
     }
-    if self.op != .unspecified {
-      try visitor.visitSingularEnumField(value: self.op, fieldNumber: 3)
-    }
     if self.timestamp != 0 {
       try visitor.visitSingularUInt64Field(value: self.timestamp, fieldNumber: 4)
     }
@@ -869,16 +825,11 @@ nonisolated extension Obscura_Client_V1_ModelSync: SwiftProtobuf.Message, SwiftP
   static func ==(lhs: Obscura_Client_V1_ModelSync, rhs: Obscura_Client_V1_ModelSync) -> Bool {
     if lhs.model != rhs.model {return false}
     if lhs.id != rhs.id {return false}
-    if lhs.op != rhs.op {return false}
     if lhs.timestamp != rhs.timestamp {return false}
     if lhs.data != rhs.data {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
-}
-
-nonisolated extension Obscura_Client_V1_ModelSync.Op: SwiftProtobuf._ProtoNameProviding {
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0OP_UNSPECIFIED\0\u{1}OP_UPDATE\0\u{2}\u{2}OP_CREATE\0")
 }
 
 nonisolated extension Obscura_Client_V1_ModelSignal: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {

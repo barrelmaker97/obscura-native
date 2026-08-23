@@ -145,7 +145,6 @@ class ReceivePathTest {
         assertEquals("alice", row.senderDisplayName, "SPEC §0.5: the name comes from OUR friend graph")
         assertEquals("MODEL_SYNC", row.kind)
         assertEquals("pix", row.modelKey)
-        assertEquals("CREATE", row.op)
     }
 
     // ── DEVICE_ANNOUNCE: trust-on-first-use on the recovery key ───────────────
