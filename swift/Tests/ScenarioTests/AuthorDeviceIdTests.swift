@@ -5,8 +5,8 @@ import XCTest
 /// derives attribution from the address of the session that decrypted: a valid MAC proves possession
 /// of that session's chain key, which only the sender's device holds (`NATIVE_CONTRACT.md` §0.10 rule 4).
 ///
-/// This asserts the attribution is the sender's **real device UUID**, on the wake-up and on the
-/// durably persisted message, and emphatically **not** the user id.
+/// This asserts the attribution is the sender's **real device UUID**, on the wake-up and in the
+/// durable inbox, and emphatically **not** the user id.
 final class AuthorDeviceIdTests: XCTestCase {
 
     func testAuthorDeviceIdIsTheSendersRealDeviceUUIDNeverTheUserId() async throws {
@@ -17,10 +17,13 @@ final class AuthorDeviceIdTests: XCTestCase {
         XCTAssertNotEqual(bobDeviceId, bobUserId,
             "device UUID and user UUID must differ, or this test cannot distinguish them")
 
-        try await bob.send(to: alice.userId!, "attribute me correctly")
+        try await bob.client.send(
+            to: [alice.userId!], modelKey: "testModel", entryId: "attributed-entry",
+            payload: Data("attribute me correctly".utf8)
+        )
 
         let received = try await alice.waitForMessage(timeout: 15)
-        XCTAssertEqual(received.text, "attribute me correctly")
+        XCTAssertEqual(received.type, "MODEL_SYNC")
         XCTAssertEqual(received.sourceUserId, bobUserId, "sourceUserId is Bob's USER id")
 
         // The wake-up carries the sender's real device UUID, not the user id.
@@ -32,18 +35,15 @@ final class AuthorDeviceIdTests: XCTestCase {
 
         try await Task.sleep(nanoseconds: 500_000_000)
 
-        // The DURABLY PERSISTED message records the honest device id too. Attribution that is right
+        // The DURABLE inbox records the honest device id too. Attribution that is right
         // in the wake-up and wrong on disk is still wrong, and the app reads the store.
-        let persisted = await alice.messages.getMessages(bobUserId)
-        let msg = try XCTUnwrap(persisted.first { $0.content == "attribute me correctly" },
-            "message must be persisted in Alice's conversation with Bob")
-        XCTAssertEqual(msg.authorDeviceId, bobDeviceId,
+        let persisted = try await alice.client.inbox.peek()
+        let row = try XCTUnwrap(persisted.first { $0.entryId == "attributed-entry" },
+            "entry must be persisted in Alice's inbox")
+        XCTAssertEqual(row.senderDeviceId, bobDeviceId,
             "persisted authorDeviceId must be Bob's REAL device UUID")
-        XCTAssertNotEqual(msg.authorDeviceId, bobUserId,
+        XCTAssertNotEqual(row.senderDeviceId, bobUserId,
             "persisted authorDeviceId must NOT be the user id")
-
-        print("PROVEN: authorDeviceId=\(msg.authorDeviceId ?? "nil") == bob.deviceId=\(bobDeviceId) "
-            + "(bob.userId=\(bobUserId))")
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()

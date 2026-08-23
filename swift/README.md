@@ -116,10 +116,8 @@ each other, so broader behavioral interoperability is not claimed.
 
 - Group-targeted sync has no server test
 - Entry expiry is not implemented on either platform
-- `MessageActor` is a compatibility surface; `getMessages` is reachable only from tests
 - No remote device revocation; use `api.deleteDevice` from a device you still hold
 - No FRIEND_SYNC — a second device learns about friends at link time only, not afterwards
-- The demo apps under `App/` target APIs that are not part of the current kit
 
 ## Build & Test
 
@@ -131,24 +129,6 @@ each other, so broader behavioral interoperability is not claimed.
 
 Requires macOS 13+, Xcode 16+. `dev.sh` sets `LIBRARY_PATH` for the vendored libsignal Rust FFI.
 
-## iOS App
-
-The app under `App/` is not a working sample; it targets APIs outside the
-current kit contract. The shipping consumer is `obscura-pix`.
-
-```bash
-# Build libsignal for iOS simulator first:
-cd vendored/libsignal
-RUSTUP_TOOLCHAIN=stable CARGO_BUILD_TARGET=aarch64-apple-ios-sim ./swift/build_ffi.sh -r
-cd ../..
-./dev.sh prepare
-
-# Then open in Xcode:
-open App/obscura-base/obscura-base.xcodeproj
-```
-
-See `App/README.md` for details.
-
 ## Dependencies
 
 - `signalapp/libsignal` v0.40.0 — Signal Protocol (vendored, Rust FFI)
@@ -159,7 +139,7 @@ See `App/README.md` for details.
 
 ## Docs
 
-- [docs/CLIENT_API.md](docs/CLIENT_API.md) — Auth, friends, devices, device linking, backup
+- [docs/CLIENT_API.md](docs/CLIENT_API.md) — Auth, friends, devices, and device linking
 - [docs/MESSAGE_FLOW.md](docs/MESSAGE_FLOW.md) — Send/receive data flow diagrams
 - [docs/PITFALLS.md](docs/PITFALLS.md) — Gotchas that waste hours
 

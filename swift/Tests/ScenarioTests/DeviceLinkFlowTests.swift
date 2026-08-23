@@ -42,10 +42,7 @@ final class DeviceLinkFlowTests: XCTestCase {
         device1Info.deviceName = "Existing Phone"
         approval.ownDevices = [device1Info]
 
-        // Include exported state
-        let friends = await existingDevice.friends.getAll()
-        let exportData = SyncBlobExporter.export(friends: friends)
-        approval.friendsExport = exportData
+        approval.friendsExport = Data("[]".utf8)
 
         var msg = Obscura_Client_V1_ClientMessage()
         msg.deviceLinkApproval = approval
@@ -61,49 +58,4 @@ final class DeviceLinkFlowTests: XCTestCase {
         newDevice.disconnectWebSocket()
     }
 
-    // MARK: - Full link flow: approve → SYNC_BLOB → new device has state
-
-    func testFullLinkFlow() async throws {
-        let device1 = try await ObscuraTestClient.register()
-        await rateLimitDelay()
-
-        // Device1 has some state
-        try await device1.friends.add("carol-id", "carol", status: .accepted)
-        try await device1.messages.add("carol", Message(messageId: "m1", conversationId: "carol", content: "synced"))
-
-        let device2 = try await ObscuraTestClient.register()
-        await rateLimitDelay()
-
-        try await device2.connectWebSocket()
-        await rateLimitDelay()
-
-        // Device1 sends SYNC_BLOB to device2
-        let friends = await device1.friends.getAll()
-        let exportData = SyncBlobExporter.export(friends: friends)
-
-        var msg = Obscura_Client_V1_ClientMessage()
-        var blob = Obscura_Client_V1_SyncBlob()
-        blob.compressedData = exportData
-        msg.syncBlob = blob
-        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
-        try await device1.sendRaw(to: device2.userId!, try msg.serializedData())
-        await rateLimitDelay()
-
-        // Device2 receives SYNC_BLOB
-        let received = try await device2.waitForMessage(timeout: 10)
-        XCTAssertEqual(received.type, "SYNC_BLOB", "Should be SYNC_BLOB")
-
-        // `rawBytes` is the decrypted ClientMessage, not the blob — the blob is one field inside it.
-        let clientMsg = try Obscura_Client_V1_ClientMessage(serializedData: received.rawBytes)
-        let importedState = SyncBlobExporter.parseExport(clientMsg.syncBlob.compressedData)
-
-        XCTAssertNotNil(importedState)
-        XCTAssertEqual(importedState!.friends.count, 1)
-        XCTAssertEqual(importedState!.friends.first?["username"] as? String, "carol")
-        XCTAssertTrue(importedState!.messages.isEmpty,
-                      "this kit's SYNC_BLOB carries the friend graph only — the message branch of "
-                      + "the exporter was unreachable from production and is deleted")
-
-        device2.disconnectWebSocket()
-    }
 }

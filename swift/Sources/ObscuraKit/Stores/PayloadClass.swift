@@ -42,7 +42,7 @@ func classify(_ payload: Obscura_Client_V1_ClientMessage.OneOf_Payload?) -> Payl
 
     // Kit-owned state, all with live handlers in `ObscuraClient.routeMessage`.
     case .friendRequest?, .friendResponse?,
-         .deviceAnnounce?, .sessionReset?, .syncBlob?, .sentSync?:
+         .deviceAnnounce?, .sessionReset?:
         return .kitInternal
 
     // Swift sends this live arm but has no receive handler. Drop and acknowledge it loudly rather
@@ -56,18 +56,15 @@ func classify(_ payload: Obscura_Client_V1_ClientMessage.OneOf_Payload?) -> Payl
     case .modelSignal?:
         return .droppable
 
-    // Legacy compatibility receive path.
-    case .text?:
-        return .kitInternal
-
     // Public senders still emit these arms, so dropping them would destroy the only copy of the
     // attachment key. Remove senders and receive classification together.
     case .contentReference?, .chunkedContentReference?:
         return .inboxed
 
-    // Declared but unsupported on receive. DEVICE_RECOVERY_ANNOUNCE has a public sender in this kit,
-    // which is a live gap; the remaining arms have no current sender here.
-    case .friendSync?,
+    // Declared but unsupported on receive. TEXT, SENT_SYNC and SYNC_BLOB used to feed the deleted
+    // native message model; the app has no reader for them, so they are diagnosed and acknowledged
+    // rather than redirected into its inbox.
+    case .text?, .sentSync?, .syncBlob?, .friendSync?,
          .deviceRecoveryAnnounce?, .historyChunk?, .syncRequest?,
          .settingsSync?, .readSync?:
         return .unimplemented

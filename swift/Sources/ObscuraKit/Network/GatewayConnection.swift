@@ -31,6 +31,10 @@ public actor GatewayConnection {
         onPreKeyStatus = handler
     }
 
+    func connectionGeneration() -> Int {
+        socketGeneration
+    }
+
     public init(api: APIClient, logger: ObscuraLogger = PrintLogger()) {
         self.api = api
         self.logger = logger

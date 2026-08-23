@@ -70,36 +70,6 @@ final class ObservationTests: XCTestCase {
         XCTAssertEqual(emitted[1].count, 1, "After accept, one friend")
     }
 
-    // MARK: - Messages observation
-
-    func testMessagesObservationEmitsOnAdd() async throws {
-        let actor = try MessageActor()
-
-        var emitted: [[Message]] = []
-        let expectation = XCTestExpectation(description: "messages emit")
-
-        let task = Task {
-            for await messages in actor.observeMessages("alice").values {
-                emitted.append(messages)
-                if emitted.count >= 2 {
-                    expectation.fulfill()
-                    break
-                }
-            }
-        }
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        try await actor.add("alice", Message(messageId: "m1", conversationId: "alice", content: "hello"))
-
-        await fulfillment(of: [expectation], timeout: 5)
-        task.cancel()
-
-        XCTAssertEqual(emitted[0].count, 0, "Initially empty")
-        XCTAssertEqual(emitted[1].count, 1, "After add, one message")
-        XCTAssertEqual(emitted[1][0].content, "hello")
-    }
-
     // MARK: - Devices observation
 
     func testDevicesObservationEmitsOnAdd() async throws {
@@ -130,35 +100,4 @@ final class ObservationTests: XCTestCase {
         XCTAssertEqual(emitted[1][0].deviceName, "iPhone")
     }
 
-    // MARK: - Conversation list observation
-
-    func testConversationListUpdates() async throws {
-        let actor = try MessageActor()
-
-        var emitted: [[String]] = []
-        let expectation = XCTestExpectation(description: "conversations emit")
-
-        let task = Task {
-            for await ids in actor.observeConversationIds().values {
-                emitted.append(ids)
-                if emitted.count >= 3 {
-                    expectation.fulfill()
-                    break
-                }
-            }
-        }
-
-        try await Task.sleep(nanoseconds: 100_000_000)
-
-        try await actor.add("alice", Message(messageId: "m1", conversationId: "alice", content: "hi"))
-        try await Task.sleep(nanoseconds: 100_000_000)
-        try await actor.add("bob", Message(messageId: "m2", conversationId: "bob", content: "hey"))
-
-        await fulfillment(of: [expectation], timeout: 5)
-        task.cancel()
-
-        XCTAssertEqual(emitted[0].count, 0, "Initially no conversations")
-        XCTAssertEqual(emitted[1].count, 1, "After first message, 1 conversation")
-        XCTAssertEqual(emitted[2].count, 2, "After second, 2 conversations")
-    }
 }

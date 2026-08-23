@@ -1,4 +1,5 @@
 import Foundation
+@testable import ObscuraKit
 
 /// Thin test wrapper around ObscuraClient.
 /// Provides convenience methods for scenario tests.
@@ -13,14 +14,13 @@ public class ObscuraTestClient {
     public var deviceId: String? { client.deviceId }
     public var token: String? { client.token }
     public var friends: FriendActor { client.friends }
-    public var messages: MessageActor { client.messages }
     public var devices: DeviceActor { client.devices }
     public var api: APIClient { client.api }
     public var gateway: GatewayConnection { client.gateway }
 
     /// Send a raw protobuf ClientMessage to a user (for tests that build custom message types)
     public func sendRaw(to userId: String, _ messageData: Data) async throws {
-        try await client.sendRawMessage(to: userId, clientMessageData: messageData)
+        try await client.sendSerializedClientMessage(to: userId, data: messageData)
         await rateLimitDelay()
     }
 
@@ -98,11 +98,6 @@ public class ObscuraTestClient {
 
     public func disconnectWebSocket() {
         client.disconnect()
-    }
-
-    public func send(to userId: String, _ text: String) async throws {
-        try await client.send(to: userId, text)
-        await rateLimitDelay()
     }
 
     public func befriend(_ userId: String, username: String = "") async throws {

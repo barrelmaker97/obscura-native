@@ -1,5 +1,16 @@
 import Foundation
 
+internal func parseCanonicalTwoPartyContext(_ contextId: String) -> [String]? {
+    let participants = contextId.split(separator: "_", omittingEmptySubsequences: false).map(String.init)
+    guard participants.count == 2,
+          participants.allSatisfy({ !$0.isEmpty }),
+          participants.sorted().joined(separator: "_") == contextId
+    else {
+        return nil
+    }
+    return participants
+}
+
 /// Ephemeral signals — typing indicators, read receipts, presence. Real-time state that
 /// auto-expires and is never persisted, which is what makes it DROPPABLE
 /// (`KIT_API.md` §4) rather than something the inbox has to carry.

@@ -42,7 +42,7 @@ final class SchemaTests: XCTestCase {
 
     /// The column shape of the two tables whose loss or corruption is unrecoverable.
     ///
-    /// Not all thirteen: a frozen copy of every table would be a second schema to maintain, and the
+    /// Not every table: a frozen copy of the whole schema would be a second schema to maintain, and the
     /// double-entry that creates is the thing `expectedTables`' own doc warns about. These two earn
     /// it — `inbox_rows` because after an ack its row is the only copy of a message anywhere
     /// (`NATIVE_CONTRACT.md` §0.9), and `model_entries` because it is the app's entire entry
@@ -97,7 +97,10 @@ final class SchemaTests: XCTestCase {
         for _ in 0..<5 { try ObscuraSchema.migrate(db) }
 
         XCTAssertEqual(try tableNames(in: db), afterFirst)
-        XCTAssertEqual(try db.read { try ObscuraSchema.migrator.appliedMigrations($0) }, ["v1", "v2"])
+        XCTAssertEqual(
+            try db.read { try ObscuraSchema.migrator.appliedMigrations($0) },
+            ["v1", "v2", "v3"]
+        )
     }
 
     /// Constructing any single store brings the whole schema up, so no store can be left querying
@@ -210,7 +213,10 @@ final class SchemaTests: XCTestCase {
         }
 
         try ObscuraSchema.migrate(db)
-        XCTAssertEqual(try db.read { try ObscuraSchema.migrator.appliedMigrations($0) }, ["v1", "v2"])
+        XCTAssertEqual(
+            try db.read { try ObscuraSchema.migrator.appliedMigrations($0) },
+            ["v1", "v2", "v3"]
+        )
 
         let row = try XCTUnwrap(try db.read { db in
             try Row.fetchOne(db, sql: "SELECT * FROM model_entries WHERE model_name = 'story' AND id = 'e1'")
@@ -296,5 +302,44 @@ final class SchemaTests: XCTestCase {
         }
         XCTAssertEqual(rows.count, 1, "(model_name, id) must still be the primary key")
         XCTAssertEqual(rows.first?["data"], "second")
+    }
+
+    // MARK: - v3 legacy-message deletion
+
+    func testV3DropsOnlyTheLegacyMessageTable() throws {
+        let db = try DatabaseQueue()
+        try ObscuraSchema.migrator.migrate(db, upTo: "v2")
+
+        try db.write { db in
+            try db.execute(sql: """
+                INSERT INTO messages
+                    (message_id, conversation_id, timestamp, content, is_sent, stored_at)
+                VALUES ('legacy-message', 'conversation', 1, 'plaintext', 0, 1)
+            """)
+            try db.execute(sql: """
+                INSERT INTO model_entries (model_name, id, data, timestamp, author_device_id)
+                VALUES ('story', 'entry-survives', '{}', 1, 'device-a')
+            """)
+            try db.execute(sql: """
+                INSERT INTO inbox_rows (envelope_id, kind, received_at, sender_user_id, payload)
+                VALUES ('envelope-survives', 'MODEL_SYNC', 1, 'user-b', X'01')
+            """)
+        }
+
+        try ObscuraSchema.migrate(db)
+
+        let tables = try tableNames(in: db)
+        XCTAssertFalse(tables.contains("messages"))
+        XCTAssertTrue(tables.contains("model_entries"))
+        XCTAssertTrue(tables.contains("inbox_rows"))
+
+        let entryCount = try db.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM model_entries WHERE id = 'entry-survives'")
+        }
+        let inboxCount = try db.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM inbox_rows WHERE envelope_id = 'envelope-survives'")
+        }
+        XCTAssertEqual(entryCount, 1)
+        XCTAssertEqual(inboxCount, 1)
     }
 }

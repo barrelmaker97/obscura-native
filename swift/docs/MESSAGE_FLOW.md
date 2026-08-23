@@ -1,107 +1,53 @@
-# Message Flow — How Data Moves Through the System
+# Entry flow
 
-## Sending a Text Message
+## Sending
 
-```
-SwiftUI View: Button("Send") { client.send(to: bobId, "hello") }
-                    │
-                    ▼
-ObscuraClient.send(to:_:)
-    │
-    ├─ Build ClientMessage protobuf (type: TEXT, text, timestamp)
-    │
-    ├─ sendToAllDevices(bobId, msg)
-    │   │
-    │   ├─ messenger.fetchPreKeyBundles(bobId)  ──── GET /v1/users/{bobId}
-    │   │   └─ auto-populates deviceMap: deviceUuid → (userId, registrationId)
-    │   │       (the registrationId slot is DIAGNOSTIC ONLY — see below)
-    │   │
-    │   ├─ for each device:
-    │   │   ├─ messenger.processServerBundle()  ──── X3DH if no session, at (deviceUuid, 1)
-    │   │   ├─ messenger.queueMessage()
-    │   │   │   ├─ encrypt(deviceUuid:_:)
-    │   │   │   │   └─ signalEncrypt() at ProtocolAddress(deviceUuid, 1)
-    │   │   │   │      → PreKey or Whisper ciphertext
-    │   │   │   ├─ wrap in EncryptedMessage protobuf
-    │   │   │   └─ add to submission queue
-    │   │
-    │   └─ messenger.flushMessages()
-    │       ├─ build SendMessageRequest protobuf (all queued submissions)
-    │       └─ POST /v1/messages (protobuf, Idempotency-Key header)
-    │
-    ├─ messages.add(bobId, Message(..., isSent: true))  ──── persist locally
-    │
-    └─ sendSentSync(...)  ──── SENT_SYNC to own other devices
+```text
+obscura-pix resolves the audience and serializes opaque payload bytes
+    ↓
+ObscuraClient.send(to:modelKey:entryId:op:sentAt:payload:)
+    ↓
+fan out to every device of each caller-named user
+    + own other devices
+    - this sending device
+    ↓
+MessengerActor establishes device-UUID Signal sessions and encrypts
+    ↓
+POST /v1/messages
 ```
 
-## Receiving a Message
+The kit does not write a local outgoing entry. The application already owns the
+payload and writes its own copy through `client.entries`.
 
-```
-Server pushes WebSocketFrame to gateway
-                    │
-                    ▼
-GatewayConnection.onBinary
-    │
-    ├─ decode WebSocketFrame protobuf
-    ├─ extract EnvelopeBatch.envelopes[]
-    └─ for each envelope → push to waiter/queue
-                    │
-                    ▼
-ObscuraClient.startEnvelopeLoop()
-    │
-    ├─ gateway.waitForRawEnvelope()
-    ├─ processEnvelope(raw)
-    │   │
-    │   ├─ decode EncryptedMessage from envelope.message
-    │   ├─ messenger.decrypt(senderUserId:senderDeviceUuid:content:messageType:)
-    │   │   └─ signalDecryptPreKey()/signalDecrypt() at ProtocolAddress(senderDeviceUuid, 1)
-    │   │      senderDeviceUuid comes from Envelope.sender_device_id (stamped server-side
-    │   │      from the device-scoped JWT — unforgeable by the sender)
-    │   ├─ decode ClientMessage from plaintext
-    │   │
-    │   ├─ routeMessage(clientMsg, sourceUserId, senderDeviceId, envelopeId)
-    │   │   ├─ classify(payload) first — §4 decides what each arm may do
-    │   │   │
-    │   │   ├─ TEXT        → messages.add() ─── GRDB write ─── ValueObservation fires
-    │   │   ├─ FRIEND_REQ  → friends.add()  ─── GRDB write ─── ValueObservation fires
-    │   │   ├─ FRIEND_RESP → friends.updateStatus() (only if we sent the request)
-    │   │   ├─ DEVICE_ANN  → verify against the PINNED recovery key (TOFU), then
-    │   │   │                friends.updateDevices() with a CLAMPED timestamp
-    │   │   ├─ MODEL_SYNC  → inbox.put() ── durable row ── app drains it
-    │   │   ├─ SYNC_BLOB   → import friends + messages (own userId only)
-    │   │   ├─ SENT_SYNC   → messages.add() (own userId only)
-    │   │   ├─ SESS_RESET  → deleteAllSessions()
-    │   │   └─ .unimplemented arms (FRIEND_SYNC, DEVICE_LINK_APPROVAL,
-    │   │      DEVICE_RECOVERY_ANNOUNCE, SYNC_REQUEST, SETTINGS_SYNC, READ_SYNC,
-    │   │      HISTORY_CHUNK) → logged, dropped, acked
-    │   │
-    │   ├─ emit(ReceivedMessage)  ──── to events stream + waiters
-    │   └─ gateway.acknowledge([envelope.id])  ──── ACK so server deletes
-    │
-    └─ loop continues
-                    │
-                    ▼
-SwiftUI View: .task { for await msgs in client.messages.observeMessages(id).values { ... } }
-              ──── GRDB ValueObservation fires automatically, view re-renders
+## Receiving
+
+```text
+gateway envelope
+    ↓
+validate sender_id + sender_device_id
+    ↓
+decrypt through the sender device UUID's Signal session
+    ↓
+classify the declared client.proto arm
+    ├─ MODEL_SYNC / content references / unknown → inbox.put
+    ├─ friend/device/session arms              → kit-owned handler
+    ├─ MODEL_SIGNAL                            → in-memory signal store
+    └─ declared unimplemented arms             → diagnose and drop
+    ↓
+emit optional wake-up event
+    ↓
+acknowledge the server envelope
 ```
 
-> **Sessions key on the device UUID, never `registrationId`**
-> (`NATIVE_CONTRACT.md` §0.10). `MessengerActor.deviceMap` retains
-> `registrationId` only as diagnostic protocol metadata.
+For inboxed content, the durable write completes before the acknowledgement.
+The app then performs:
 
-## Key Invariant — for kit-owned state
+```text
+inbox.peek → authorize/merge in obscura-pix → entries.put → inbox.consume
+```
 
-Friends, devices and messages are kit-owned and push to the view. **Application entries are not:**
-a MODEL_SYNC becomes a row in `client.inbox`, and the app drains it (`peek` → merge → write →
-`consume`). The receive path does not promote inbox rows automatically; the app
-explicitly stores merged opaque entries through `client.entries`
-(`KIT_API.md` §3).
+`TEXT`, `SENT_SYNC`, and `SYNC_BLOB` are unimplemented compatibility arms. The
+deleted native message model is not replaced by inbox rows the app cannot read.
 
-**For everything the kit does own: the view never asks for data. Data comes to the view.**
-
-1. GRDB writes happen in the envelope loop (background)
-2. `ValueObservation` detects the write automatically
-3. `AsyncStream` emits the new state
-4. SwiftUI re-renders
-
-No polling. No manual refresh. No "pull to reload." The envelope loop IS the state machine.
+Signal sessions are keyed by device UUID, never `registrationId`
+(`NATIVE_CONTRACT.md` §0.10).

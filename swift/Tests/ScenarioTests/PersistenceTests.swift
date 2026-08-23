@@ -55,16 +55,22 @@ final class PersistenceTests: XCTestCase {
         let aliceFriend = await alice.friends.getFriend(bobUserId)
         XCTAssertEqual(aliceFriend?.status, .accepted)
 
-        // Now send a message to prove sessions work
-        try await alice.send(to: bobUserId, "before restart")
+        // Now send an entry to prove sessions work
+        try await alice.client.send(
+            to: [bobUserId], modelKey: "testModel", entryId: "before-restart",
+            payload: Data("before restart".utf8)
+        )
         let msg1 = try await bob1.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg1.text, "before restart", "Should receive while connected")
+        XCTAssertEqual(msg1.type, "MODEL_SYNC")
 
         // 4. Bob disconnects (simulates app kill)
         bob1.disconnect()
 
         // 5. Alice sends while Bob is "dead"
-        try await alice.send(to: bobUserId, "while you were dead")
+        try await alice.client.send(
+            to: [bobUserId], modelKey: "testModel", entryId: "while-dead",
+            payload: Data("while you were dead".utf8)
+        )
         await rateLimitDelay()
         try await Task.sleep(nanoseconds: 1_000_000_000) // 1s for server to queue
 
@@ -89,7 +95,9 @@ final class PersistenceTests: XCTestCase {
         await bob2.ensureFreshToken()
         try await bob2.connect()
         let msg2 = try await bob2.waitForMessage(timeout: 15)
-        XCTAssertEqual(msg2.text, "while you were dead", "Should receive message queued while offline")
+        XCTAssertEqual(msg2.type, "MODEL_SYNC")
+        let queued = try await bob2.inbox.peek()
+        XCTAssertTrue(queued.contains { $0.entryId == "while-dead" })
 
         bob2.disconnect()
         alice.disconnectWebSocket()
@@ -119,31 +127,6 @@ final class PersistenceTests: XCTestCase {
         let friends2 = await client2.friends.getAccepted()
         XCTAssertEqual(friends2.count, 1, "Friends should survive restart")
         XCTAssertEqual(friends2.first?.username, "fakefriend")
-    }
-
-    // MARK: - Scenario C: Messages survive restart
-
-    func testMessagesSurviveRestart() async throws {
-        let dir = tempDir()
-        defer { cleanup(dir) }
-
-        let apiURL = TestServer.apiURL
-
-        let client1 = try ObscuraClient(apiURL: apiURL, dataDirectory: dir)
-        try await client1.register("test_\(Int.random(in: 100000...999999))", "testpass123456")
-        await rateLimitDelay()
-
-        // Store a message
-        try await client1.messages.add("conv-123", Message(
-            messageId: "msg-1", conversationId: "conv-123",
-            content: "persisted message", isSent: true
-        ))
-
-        // "Restart"
-        let client2 = try ObscuraClient(apiURL: apiURL, dataDirectory: dir)
-        let msgs = await client2.messages.getMessages("conv-123")
-        XCTAssertEqual(msgs.count, 1, "Messages should survive restart")
-        XCTAssertEqual(msgs.first?.content, "persisted message")
     }
 
     // MARK: - Scenario D: Signal identity survives restart
@@ -185,7 +168,9 @@ final class PersistenceTests: XCTestCase {
         await rateLimitDelay()
 
         try await client1.friends.add("friend-1", "alice", status: .accepted)
-        try await client1.messages.add("conv-1", Message(messageId: "m1", conversationId: "conv-1", content: "test"))
+        try await client1.entries.put(model: "testModel", entry: StoredEntry(
+            id: "e1", data: "test", sentAt: 1, authorDeviceId: "device"
+        ))
 
         // Logout — should NOT wipe data
         try await client1.logout()
@@ -193,9 +178,9 @@ final class PersistenceTests: XCTestCase {
         // "Restart"
         let client2 = try ObscuraClient(apiURL: apiURL, dataDirectory: dir)
         let friends = await client2.friends.getAccepted()
-        let msgs = await client2.messages.getMessages("conv-1")
+        let entries = try await client2.entries.all(model: "testModel")
         XCTAssertEqual(friends.count, 1, "Friends should survive logout")
-        XCTAssertEqual(msgs.count, 1, "Messages should survive logout")
+        XCTAssertEqual(entries.count, 1, "Entries should survive logout")
         XCTAssertTrue(client2.persistentSignalStore?.hasPersistedIdentity ?? false, "Signal identity should survive logout")
     }
 
@@ -212,7 +197,9 @@ final class PersistenceTests: XCTestCase {
         await rateLimitDelay()
 
         try await client1.friends.add("friend-1", "alice", status: .accepted)
-        try await client1.messages.add("conv-1", Message(messageId: "m1", conversationId: "conv-1", content: "test"))
+        try await client1.entries.put(model: "testModel", entry: StoredEntry(
+            id: "e1", data: "test", sentAt: 1, authorDeviceId: "device"
+        ))
 
         // Wipe — should nuke everything
         try await client1.wipeDevice()
@@ -220,9 +207,9 @@ final class PersistenceTests: XCTestCase {
         // "Restart"
         let client2 = try ObscuraClient(apiURL: apiURL, dataDirectory: dir)
         let friends = await client2.friends.getAccepted()
-        let msgs = await client2.messages.getMessages("conv-1")
+        let entries = try await client2.entries.all(model: "testModel")
         XCTAssertEqual(friends.count, 0, "Friends should be wiped")
-        XCTAssertEqual(msgs.count, 0, "Messages should be wiped")
+        XCTAssertEqual(entries.count, 0, "Entries should be wiped")
         XCTAssertFalse(client2.persistentSignalStore?.hasPersistedIdentity ?? false, "Signal identity should be wiped")
     }
 

@@ -10,7 +10,7 @@ sent with `client.send(to:modelKey:entryId:op:sentAt:payload:)`.
 // In-memory (tests) — all state lost on dealloc
 let client = try ObscuraClient(apiURL: "https://obscura.barrelmaker.dev")
 
-// File-backed (production) — persists Signal keys, friends, messages across app restarts
+// File-backed (production) — persists Signal keys, friends, inbox, and entries across restarts
 let client = try ObscuraClient(
     apiURL: "https://obscura.barrelmaker.dev",
     dataDirectory: "/path/to/app/data",
@@ -57,6 +57,9 @@ try await client.logout()
 ```swift
 // Connect WebSocket + start envelope loop + start token refresh
 try await client.connect()
+
+// Lifecycle-safe foreground entrypoint; no-ops unless authenticated and fully disconnected
+try await client.ensureConnected()
 
 // Disconnect (cancels envelope loop + token refresh)
 client.disconnect()
@@ -124,7 +127,7 @@ let linkCode = client.generateLinkCode()
 
 // EXISTING DEVICE: scan/paste and approve
 try await existingClient.validateAndApproveLink(linkCode)
-// This sends: DEVICE_LINK_APPROVAL → SYNC_BLOB → DEVICE_ANNOUNCE
+// This sends: DEVICE_LINK_APPROVAL → DEVICE_ANNOUNCE
 ```
 
 Link codes expire after 5 minutes. They contain a random challenge, the device's Signal identity key, and a timestamp — all Base58-encoded.
@@ -135,13 +138,11 @@ For the full device linking ceremony:
 3. Existing device scans, calls `validateAndApproveLink(code)`
 4. Existing device sends `DEVICE_LINK_APPROVAL`, but Swift currently drops that
    arm on receive
-5. Existing device sends `SYNC_BLOB`, which imports the friend graph; the Swift
-   exporter currently sends no message history
-6. Existing device broadcasts DEVICE_ANNOUNCE to all friends
+5. Existing device broadcasts DEVICE_ANNOUNCE to all friends
 
 Because Swift does not handle `DEVICE_LINK_APPROVAL`, the new device does not
-import its P2P/recovery keys or the complete own-device list. Linking remains
-partial until that receive path is implemented.
+import its P2P/recovery keys, friend export, or complete own-device list. Linking
+remains partial until that receive path is implemented.
 
 ## Device Revocation
 
@@ -156,35 +157,32 @@ Deletion does not remove the device from the local `DeviceStore`. Calling
 `announceDevices()` immediately afterward would rebroadcast the stale list; no
 public refresh/removal operation currently closes that gap.
 
-## Sending Messages
+## Sending Entries
 
 ```swift
 // An application entry — the app names the recipients and supplies opaque bytes.
 try await client.send(
     to: [friendUserId], modelKey: "directMessage", entryId: entryId, payload: jsonBytes)
-
-// Raw protobuf message (advanced)
-try await client.sendRawMessage(to: friendUserId, clientMessageData: protoBytes)
 ```
 
-## Receiving Messages
+## Receiving Entries
 
 The envelope loop in `connect()` handles all incoming messages automatically:
-- TEXT → stored in `MessageActor`
 - FRIEND_REQUEST → stored in `FriendActor`
 - FRIEND_RESPONSE → updates friend status
 - MODEL_SYNC → written to `client.inbox` as a durable row, then acked (an ack is a DELETE, so the write comes first)
 - DEVICE_ANNOUNCE → updates friend's device list
-- SYNC_BLOB → imports state from linked device
-- SENT_SYNC → stores message as "sent" on other own devices
+- TEXT / SENT_SYNC / SYNC_BLOB → diagnosed, dropped, and acked as unimplemented
 
-For custom handling, subscribe to the events stream:
+The application drains `client.inbox`, authorizes and merges the opaque payload,
+writes the result through `client.entries`, then calls `consume`.
+
+For wake-up handling, subscribe to the events stream:
 
 ```swift
 for await event in client.events() {
     switch event.type {
-    case 0:  print("TEXT: \(event.text)")
-    case 30: print("MODEL_SYNC from \(event.sourceUserId)")
+    case "MODEL_SYNC": print("entry from \(event.sourceUserId)")
     default: break
     }
 }
@@ -205,21 +203,6 @@ try await client.resetSessionWith(friendUserId, reason: "user requested")
 // Reset all sessions
 try await client.resetAllSessions(reason: "key rotation")
 ```
-
-## Backup
-
-```swift
-// Upload encrypted backup to server
-try await client.uploadBackup()
-
-// Check if backup exists
-let (exists, etag, size) = try await client.checkBackup()
-
-// Download
-let data = try await client.downloadBackup()
-```
-
-Backup uses optimistic locking: `If-None-Match: *` for initial upload, `If-Match: <etag>` for updates.
 
 ## Attachments
 
@@ -254,8 +237,10 @@ Implement the `ObscuraLogger` protocol for custom logging.
 
 ## Rate Limiting
 
-The server rate-limits aggressively. All `ObscuraTestClient` methods include a 500ms delay between API calls. If you call `APIClient` directly, add delays:
+The server rate-limits aggressively. Test helpers use the shared pacing functions. If you call
+`APIClient` directly, add the matching delay:
 
 ```swift
-await rateLimitDelay()  // 500ms — available globally
+await rateLimitDelay()      // 100ms for general endpoints
+await authRateLimitDelay()  // 1000ms for auth endpoints
 ```

@@ -234,43 +234,6 @@ public actor APIClient {
         return response.ticket
     }
 
-    // MARK: - Backup
-
-    public func uploadBackup(_ data: Data, etag: String? = nil) async throws -> String? {
-        var headers: [String: String] = [:]
-        if let etag = etag {
-            headers["If-Match"] = etag
-        } else {
-            headers["If-None-Match"] = "*"
-        }
-        let (_, response) = try await request("/v1/backup", method: "POST", body: data,
-                                               contentType: "application/octet-stream",
-                                               extraHeaders: headers)
-        return response.value(forHTTPHeaderField: "ETag")
-    }
-
-    public func downloadBackup(etag: String? = nil) async throws -> (data: Data, etag: String?)? {
-        var headers: [String: String] = [:]
-        if let etag = etag { headers["If-None-Match"] = etag }
-
-        do {
-            let (data, response) = try await request("/v1/backup", extraHeaders: headers)
-            return (data: data, etag: response.value(forHTTPHeaderField: "ETag"))
-        } catch let error as APIError where error.status == 304 || error.status == 404 {
-            return nil
-        }
-    }
-
-    public func checkBackup() async throws -> (exists: Bool, etag: String?, size: Int?) {
-        do {
-            let (_, response) = try await request("/v1/backup", method: "HEAD")
-            let size = response.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init)
-            return (exists: true, etag: response.value(forHTTPHeaderField: "ETag"), size: size)
-        } catch let error as APIError where error.status == 404 {
-            return (exists: false, etag: nil, size: nil)
-        }
-    }
-
     // MARK: - Push
 
     public func registerPushToken(_ token: String, type: String = "apns") async throws {

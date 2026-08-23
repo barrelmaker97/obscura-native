@@ -93,4 +93,10 @@ public actor EntryStore {
                            arguments: [model, id])
         }
     }
+
+    func wipe() async throws {
+        try await db.write { db in
+            try db.execute(sql: "DELETE FROM model_entries")
+        }
+    }
 }

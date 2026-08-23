@@ -29,8 +29,7 @@ final class EdgeCaseTests: XCTestCase {
     }
 
     func testVerifyCodeIsStableForSameRecoveryPhrase() async throws {
-        let alice = try await ObscuraTestClient.register()
-        let phrase = alice.client.generateRecoveryPhrase()
+        let phrase = RecoveryKeys.generatePhrase()
 
         // The verification key is derived directly from the phrase.
         let pubKey = RecoveryKeys.getPublicKey(from: phrase)
@@ -50,9 +49,9 @@ final class EdgeCaseTests: XCTestCase {
             "displayName": "Alice Display",
             "avatarUrl": "att-avatar-123"
         ])
-        try await alice.client.sendModelSync(
-            to: bob.userId!, model: "profile",
-            entryId: "profile_\(alice.userId!)", data: profileData
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "profile",
+            entryId: "profile_\(alice.userId!)", payload: profileData
         )
         await rateLimitDelay()
 

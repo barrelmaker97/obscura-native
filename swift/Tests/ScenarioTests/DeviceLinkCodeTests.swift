@@ -95,10 +95,6 @@ final class DeviceLinkCodeTests: XCTestCase {
         let approval = try await device2.waitForMessage(timeout: 10)
         XCTAssertEqual(approval.type, "DEVICE_LINK_APPROVAL", "Should be DEVICE_LINK_APPROVAL (type 11)")
 
-        // Device 2 should also receive SYNC_BLOB with friends
-        let syncBlob = try await device2.waitForMessage(timeout: 10)
-        XCTAssertEqual(syncBlob.type, "SYNC_BLOB", "Should be SYNC_BLOB (type 23)")
-
         device1.disconnect()
         device2.disconnect()
         bob.disconnectWebSocket()

@@ -77,6 +77,44 @@ private actor PushDrainCoordinator {
     }
 }
 
+private actor ConnectionCoordinator {
+    private var locked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func run(_ operation: @escaping () async throws -> Void) async throws {
+        await acquire()
+        defer { release() }
+        try await operation()
+    }
+
+    private func acquire() async {
+        if !locked {
+            locked = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    private func release() {
+        if waiters.isEmpty {
+            locked = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
+internal func shouldForceReconnectAfterPush(
+    processed: UInt64,
+    startedConnected: Bool,
+    lastProcessedAt: Date,
+    now: Date,
+    recentActivityWindow: TimeInterval
+) -> Bool {
+    guard processed == 0, startedConnected else { return false }
+    return now.timeIntervalSince(lastProcessedAt) > recentActivityWindow
+}
+
 // MARK: - ObscuraClient
 
 /// ObscuraClient — the unified facade.
@@ -88,7 +126,6 @@ public class ObscuraClient {
 
     public let api: APIClient
     public let friends: FriendActor
-    public let messages: MessageActor
     public let devices: DeviceActor
     public let gateway: GatewayConnection
 
@@ -193,6 +230,7 @@ public class ObscuraClient {
     private var messageQueue: [ReceivedMessage] = []
     private let processedEnvelopes = ProcessedEnvelopeTracker()
     private let pushDrainCoordinator = PushDrainCoordinator()
+    private let connectionCoordinator = ConnectionCoordinator()
 
     /// Events stream — every received message after routing (multi-observer)
     private var eventContinuations: [AsyncStream<ReceivedMessage>.Continuation] = []
@@ -241,6 +279,7 @@ public class ObscuraClient {
     private static let reconnectMaxDelayMs: UInt64 = 30_000
     /// Keep the single reconnect retry inside the push path's tight OS time budget.
     private static let pushDrainReconnectRetryNanos: UInt64 = 250_000_000
+    private static let pushDrainRecentActivityWindow: TimeInterval = 10
     private static let pingIntervalSeconds: TimeInterval = 30
 
     // Decrypt rate limiting: track failures per sender
@@ -271,7 +310,6 @@ public class ObscuraClient {
         self.sharedDb = nil
         self.api = APIClient(baseURL: apiURL)
         self.friends = try FriendActor()
-        self.messages = try MessageActor()
         self.devices = try DeviceActor()
         self.inbox = try InboxStore(onDiscard: Self.discardLogger(logger))
         self.entries = try EntryStore()
@@ -319,7 +357,6 @@ public class ObscuraClient {
 
         self.api = APIClient(baseURL: apiURL)
         self.friends = try FriendActor(db: db)
-        self.messages = try MessageActor(db: db)
         self.devices = try DeviceActor(db: db)
         self.inbox = try InboxStore(db: db, onDiscard: Self.discardLogger(logger))
         self.entries = try EntryStore(db: db)
@@ -711,36 +748,59 @@ public class ObscuraClient {
     // MARK: - Connect (WebSocket + envelope loop + token refresh + auto-reconnect)
 
     public func connect() async throws {
-        // DEBUG (flap diagnosis): trace overlapping connect() calls — two of these
-        // close together means foreground observer / reconnect / broadcast raced.
-        logger.log("[client] connect() begin state=\(_connectionState)")
-        // Cancel any existing loops (but not reconnectTask — it called us)
-        envelopeTask?.cancel()
-        envelopeTask = nil
-        tokenRefreshTask?.cancel()
-        tokenRefreshTask = nil
-
-        shouldReconnect = true
-        _connectionState = .connecting
-
-        // Listen for PreKeyStatus frames from server
-        await gateway.setOnPreKeyStatus { [weak self] count, threshold in
-            if count < threshold {
-                Task { [weak self] in await self?.replenishPreKeys() }
-            }
+        try await connectionCoordinator.run { [weak self] in
+            guard let self else { return }
+            guard self._connectionState != .connected else { return }
+            try await self.establishConnection()
         }
+    }
 
-        // Ensure fresh token before connecting
-        await ensureFreshToken()
+    /// Lifecycle-safe reconnect entrypoint. It is safe to call on every foreground resume.
+    ///
+    /// A connect or automatic reconnect already in flight owns the transition out of
+    /// `.connecting`/`.reconnecting`; only a fully disconnected authenticated client starts a new
+    /// connection attempt here.
+    public func ensureConnected() async throws {
+        guard _authState == .authenticated, _connectionState == .disconnected else { return }
+        try await connect()
+    }
 
-        try await gateway.connect()
-        _connectionState = .connected
-        reconnectAttempts = 0
-        persistSession() // save refreshed tokens on connect/reconnect
-        logger.log("gateway connected (messenger: \(_messenger != nil))")
-        startEnvelopeLoop()
-        startTokenRefresh()
-        startForegroundObserver()
+    private func establishConnection() async throws {
+        do {
+            logger.log("[client] connect() begin state=\(_connectionState)")
+            // Cancel any existing loops (but not reconnectTask — it called us)
+            envelopeTask?.cancel()
+            envelopeTask = nil
+            tokenRefreshTask?.cancel()
+            tokenRefreshTask = nil
+
+            shouldReconnect = true
+            _connectionState = .connecting
+
+            // Listen for PreKeyStatus frames from server
+            await gateway.setOnPreKeyStatus { [weak self] count, threshold in
+                if count < threshold {
+                    Task { [weak self] in await self?.replenishPreKeys() }
+                }
+            }
+
+            // Ensure fresh token before connecting
+            await ensureFreshToken()
+
+            try await gateway.connect()
+            _connectionState = .connected
+            reconnectAttempts = 0
+            persistSession() // save refreshed tokens on connect/reconnect
+            logger.log("gateway connected (messenger: \(_messenger != nil))")
+            startEnvelopeLoop()
+            startTokenRefresh()
+            startForegroundObserver()
+        } catch {
+            if _connectionState != .connected {
+                _connectionState = .disconnected
+            }
+            throw error
+        }
     }
 
     #if os(iOS)
@@ -762,10 +822,10 @@ public class ObscuraClient {
         ) { [weak self] _ in
             guard let self = self else { return }
             Task {
-                if self.shouldReconnect && self._connectionState != .connected {
-                    self.logger.log("app foregrounded — reconnecting")
-                    await self.ensureFreshToken()
-                    try? await self.connect()
+                do {
+                    try await self.ensureConnected()
+                } catch {
+                    self.logger.log("app foreground reconnect failed: \(error)")
                 }
             }
         }
@@ -823,22 +883,72 @@ public class ObscuraClient {
     }
 
     private func performPendingMessageDrain(timeout: TimeInterval) async -> Int {
-        let processedAtStart = await processedEnvelopes.snapshot().count
-        logger.log("[push] drain start (timeout=\(Int(timeout))s, connected=\(_connectionState == .connected))")
-        if _connectionState != .connected {
-            // Retry one transient connection failure and log both attempts. The current Int return
-            // cannot distinguish "no envelopes" from "could not connect".
-            do { try await connect() } catch {
-                logger.log("[push] connect failed (attempt 1/2): \(error)")
-                try? await Task.sleep(nanoseconds: Self.pushDrainReconnectRetryNanos)
-                do { try await connect() } catch {
-                    logger.log("[push] drain ABORTED — could not connect after 2 attempts: \(error)")
-                    return 0
-                }
-            }
+        let startSnapshot = await processedEnvelopes.snapshot()
+        let processedAtStart = startSnapshot.count
+        let startedConnected = _connectionState == .connected
+        logger.log("[push] drain start (timeout=\(Int(timeout))s, connected=\(startedConnected))")
+
+        if !startedConnected {
+            let connected = await connectWithOneRetry()
+            guard connected else { return 0 }
         }
 
         let deadline = Date().addingTimeInterval(timeout)
+        await waitForPushDrainActivity(until: deadline)
+
+        var snapshot = await processedEnvelopes.snapshot()
+        var processed = snapshot.count >= processedAtStart ? snapshot.count - processedAtStart : 0
+
+        if shouldForceReconnectAfterPush(
+            processed: processed,
+            startedConnected: startedConnected,
+            lastProcessedAt: snapshot.lastProcessedAt,
+            now: Date(),
+            recentActivityWindow: Self.pushDrainRecentActivityWindow
+        ) {
+            logger.log("[push] contradiction: connected socket drained nothing; forcing reconnect")
+            if await forceReconnect() {
+                await waitForPushDrainActivity(until: deadline)
+                snapshot = await processedEnvelopes.snapshot()
+                processed = snapshot.count >= processedAtStart ? snapshot.count - processedAtStart : 0
+            }
+        }
+
+        let result = Int(min(processed, UInt64(Int.max)))
+        logger.log("[push] drain done: processed=\(result)")
+        return result
+    }
+
+    private func connectWithOneRetry() async -> Bool {
+        do {
+            try await connect()
+            return true
+        } catch {
+            logger.log("[push] connect failed (attempt 1/2): \(error)")
+            try? await Task.sleep(nanoseconds: Self.pushDrainReconnectRetryNanos)
+            do {
+                try await connect()
+                return true
+            } catch {
+                logger.log("[push] drain ABORTED — could not connect after 2 attempts: \(error)")
+                return false
+            }
+        }
+    }
+
+    private func forceReconnect() async -> Bool {
+        envelopeTask?.cancel()
+        envelopeTask = nil
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        await gateway.disconnect()
+        _connectionState = .disconnected
+        return await connectWithOneRetry()
+    }
+
+    private func waitForPushDrainActivity(until deadline: Date) async {
         let idleThreshold: TimeInterval = 0.5
         var lastActivityAt = Date()
 
@@ -853,12 +963,6 @@ public class ObscuraClient {
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
         }
-
-        let processedAtEnd = await processedEnvelopes.snapshot().count
-        let processed = processedAtEnd >= processedAtStart ? processedAtEnd - processedAtStart : 0
-        let result = Int(min(processed, UInt64(Int.max)))
-        logger.log("[push] drain done: processed=\(result)")
-        return result
     }
 
     /// Schedule auto-reconnect with exponential backoff.
@@ -893,28 +997,6 @@ public class ObscuraClient {
 
     // MARK: - High-Level Operations
 
-    /// Send a text message to an accepted friend. Throws if not friends.
-    public func send(to friendUserId: String, _ text: String) async throws {
-        _ = try requireMessenger()
-        guard await friends.isFriend(friendUserId) else {
-            throw ObscuraError.notFriends(friendUserId)
-        }
-        let timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
-        let messageId = "msg_\(UUID().uuidString)"
-
-        var msg = Obscura_Client_V1_ClientMessage()
-        msg.text.text = text
-        msg.timestamp = timestamp
-
-        try await sendToAllDevices(friendUserId, msg)
-
-        // Persist locally
-        try await messages.add(friendUserId, Message(messageId: messageId, conversationId: friendUserId, timestamp: timestamp, content: text, isSent: true))
-
-        // SENT_SYNC to own devices
-        try await sendSentSync(conversationId: friendUserId, messageId: messageId, timestamp: timestamp, content: text)
-    }
-
     /// Send a friend request. Stores the target with their username so the UI can display it.
     ///
     /// - Note: A second device does not learn about friends added after it was
@@ -944,25 +1026,6 @@ public class ObscuraClient {
 
         try await sendToAllDevices(targetUserId, msg)
         await friends.updateStatus(targetUserId, .accepted)
-    }
-
-    /// Send a MODEL_SYNC message to a friend (pass pre-serialized ClientMessage data)
-    public func sendRawMessage(to friendUserId: String, clientMessageData: Data) async throws {
-        let messenger = try requireMessenger()
-        let bundles = try await messenger.fetchPreKeyBundles(friendUserId)
-        await rateLimitDelay()
-
-        for bundle in bundles {
-            do {
-                try await messenger.processServerBundle(bundle, userId: friendUserId)
-            } catch {
-                logger.sessionEstablishFailed(userId: friendUserId, error: "\(error)")
-                continue
-            }
-            let targetDeviceId = bundle.deviceId
-            try await messenger.queueMessage(targetDeviceId: targetDeviceId, clientMessageData: clientMessageData, targetUserId: friendUserId)
-        }
-        _ = try await messenger.flushMessages()
     }
 
     /// Announce the current device list to all friends.
@@ -1021,26 +1084,7 @@ public class ObscuraClient {
         }
     }
 
-    // MARK: - Device Sync
-
-    /// Send history (friends + messages) as SYNC_BLOB to a specific device.
-    public func pushHistoryToDevice(_ targetDeviceId: String) async throws {
-        let messenger = try requireMessenger()
-        guard let uid = userId else { throw ObscuraError.notAuthenticated }
-
-        let friendsData = await friends.getAll()
-        let compressed = SyncBlobExporter.export(friends: friendsData)
-
-        var msg = Obscura_Client_V1_ClientMessage()
-        msg.syncBlob.compressedData = compressed
-        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
-
-        let msgData = try msg.serializedData()
-        try await messenger.queueMessage(targetDeviceId: targetDeviceId, clientMessageData: msgData, targetUserId: uid)
-        _ = try await messenger.flushMessages()
-    }
-
-    /// Approve a device link request — fetch bundles, send DEVICE_LINK_APPROVAL, push history, announce.
+    /// Approve a device link request — fetch bundles, send DEVICE_LINK_APPROVAL, then announce.
     public func approveLink(newDeviceId: String, challengeResponse: Data) async throws {
         let messenger = try requireMessenger()
         guard let uid = userId else { throw ObscuraError.notAuthenticated }
@@ -1059,7 +1103,7 @@ public class ObscuraClient {
         let identity = await devices.getIdentity()
         let ownDevices = await devices.getOwnDevices()
         let friendsData = await friends.getAll()
-        let friendsExportData = SyncBlobExporter.export(friends: friendsData)
+        let friendsExportData = Self.encodeFriendsForLink(friendsData)
 
         var approval = Obscura_Client_V1_DeviceLinkApproval()
         if let pk = identity?.p2pPublicKey { approval.p2PPublicKey = pk }
@@ -1082,7 +1126,6 @@ public class ObscuraClient {
         try await messenger.queueMessage(targetDeviceId: newDeviceId, clientMessageData: msgData, targetUserId: uid)
         _ = try await messenger.flushMessages()
 
-        try await pushHistoryToDevice(newDeviceId)
         try await announceDevices()
     }
 
@@ -1232,10 +1275,7 @@ public class ObscuraClient {
     ///
     /// **The caller names the recipients** (SPEC §0.4). The kit fans out to every device of every
     /// listed userId, plus this user's own *other* devices, and makes **no delivery decision of its
-    /// own** — no audience resolution, no reading of `payload` to discover who it is for. That is the
-    /// difference from the compatibility
-    /// ``sendModelSync(to:model:entryId:op:data:)`` helper, which resolves one
-    /// friend. New integrations should use this explicit-audience operation.
+    /// own** — no audience resolution, no reading of `payload` to discover who it is for.
     ///
     /// Two properties §5 asks to be proven rather than assumed, both pinned by Kotlin's
     /// `EntrySendTests` and mirrored here:
@@ -1364,44 +1404,16 @@ public class ObscuraClient {
         msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
         guard let msgData = try? msg.serializedData() else { return }
 
-        // Fail CLOSED: a contextId that does not name exactly two participants sends NOTHING.
-        // Dropping an ephemeral typing indicator costs nothing; guessing its audience leaks the
-        // conversation.
-        let participants = conversationId.split(separator: "_").map(String.init).filter { !$0.isEmpty }
-        guard participants.count == 2 else {
-            logger.log("signal dropped: contextId is not a canonical two-party value — refusing to broadcast a 1:1 signal")
+        guard let localUserId = userId,
+              let participants = parseCanonicalTwoPartyContext(conversationId),
+              participants.contains(localUserId),
+              let remoteUserId = participants.first(where: { $0 != localUserId }),
+              await friends.isFriend(remoteUserId)
+        else {
+            logger.log("signal dropped: contextId is not a canonical accepted two-party conversation")
             return
         }
-        for participant in participants where participant != userId {
-            try? await sendRawMessage(to: participant, clientMessageData: msgData)
-        }
-    }
-
-    public func sendModelSync(to friendUserId: String, model: String, entryId: String, op: String = "CREATE", data: Data) async throws {
-        guard await friends.isFriend(friendUserId) else { throw ObscuraError.notFriends(friendUserId) }
-        var sync = Obscura_Client_V1_ModelSync()
-        sync.model = model
-        sync.id = entryId
-        sync.op = WireCodec.encodeOp(op)
-        sync.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
-        sync.data = data
-        sync.authorDeviceID = deviceId ?? ""
-
-        var msg = Obscura_Client_V1_ClientMessage()
-        msg.modelSync = sync
-        try await sendToAllDevices(friendUserId, msg)
-    }
-
-    // MARK: - Query Helpers
-
-    /// Convenience: get messages for a conversation (delegates to MessageActor).
-    public func getMessages(_ conversationId: String, limit: Int = 50) async -> [Message] {
-        await messages.getMessages(conversationId, limit: limit)
-    }
-
-    /// Check if a backup exists on the server (HEAD request).
-    public func checkBackup() async throws -> (exists: Bool, etag: String?, size: Int?) {
-        try await api.checkBackup()
+        try? await sendSerializedClientMessage(to: remoteUserId, data: msgData)
     }
 
     // MARK: - Facade (high-level methods for thin bridges)
@@ -1555,86 +1567,6 @@ public class ObscuraClient {
         logger.log("session restored from storage")
     }
 
-    // MARK: - Recovery (Optional)
-    //
-    // BIP39 recovery is opt-in. If you never call generateRecoveryPhrase(), everything works
-    // without it — device linking, messaging, sync. The one feature that uses a recovery phrase is
-    // `announceRecovery()`, which signs a DEVICE_RECOVERY_ANNOUNCE with it.
-    //
-    // There is no remote device revocation. Delete a device server-side from a device you still
-    // hold.
-    //
-    // Device announce signature verification is trust-on-first-use: the peer's recovery public key
-    // is pinned from the first DEVICE_ANNOUNCE that carries one and verified against the stored copy
-    // thereafter (see `routeMessage`'s `.deviceAnnounce` arm).
-
-    /// Generate a 12-word recovery phrase. Store it securely.
-    /// Access via getRecoveryPhrase() which clears the in-memory copy after read.
-    private var _recoveryPhrase: String?
-
-    /// Read the recovery phrase exactly once, then wipe it from memory.
-    public func getRecoveryPhrase() -> String? {
-        let phrase = _recoveryPhrase
-        _recoveryPhrase = nil
-        return phrase
-    }
-
-    /// Generate a recovery phrase and hold it for exactly one ``getRecoveryPhrase()`` read.
-    ///
-    /// The derived public key is not cached because it is a pure function of the phrase.
-    public func generateRecoveryPhrase() -> String {
-        let phrase = RecoveryKeys.generatePhrase()
-        self._recoveryPhrase = phrase
-        return phrase
-    }
-
-    /// Announce recovery to all friends (new device replacing old ones).
-    public func announceRecovery(_ recoveryPhrase: String) async throws {
-        let timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
-        let announceData = RecoveryKeys.serializeAnnounceForSigning(
-            deviceIds: [deviceId ?? ""], timestamp: timestamp, isRevocation: false
-        )
-        let signature = RecoveryKeys.sign(phrase: recoveryPhrase, data: announceData)
-        let recoveryPubKey = RecoveryKeys.getPublicKey(from: recoveryPhrase)
-
-        var announce = Obscura_Client_V1_DeviceRecoveryAnnounce()
-        var deviceInfo = Obscura_Client_V1_DeviceInfo()
-        deviceInfo.deviceID = deviceId ?? ""
-        announce.newDevices = [deviceInfo]
-        announce.timestamp = timestamp
-        announce.signature = signature
-        announce.isFullRecovery = true
-        announce.recoveryPublicKey = recoveryPubKey
-
-        var msg = Obscura_Client_V1_ClientMessage()
-        msg.deviceRecoveryAnnounce = announce
-
-        let accepted = await friends.getAccepted()
-        for friend in accepted {
-            try await sendToAllDevices(friend.userId, msg)
-        }
-    }
-
-    // MARK: - Backup
-
-    private var backupEtag: String?
-
-    /// Upload encrypted backup to server.
-    public func uploadBackup() async throws -> String? {
-        let friendsData = await friends.getAll()
-        let exportData = SyncBlobExporter.export(friends: friendsData)
-        let etag = try await api.uploadBackup(exportData, etag: backupEtag)
-        backupEtag = etag
-        return etag
-    }
-
-    /// Download backup from server.
-    public func downloadBackup() async throws -> Data? {
-        guard let result = try await api.downloadBackup(etag: backupEtag) else { return nil }
-        backupEtag = result.etag
-        return result.data
-    }
-
     /// Wait for next incoming message. Uses buffered queue — messages processed by
     /// the envelope loop are queued here, so timing doesn't matter.
     public func waitForMessage(timeout: TimeInterval = 10) async throws -> ReceivedMessage {
@@ -1656,7 +1588,7 @@ public class ObscuraClient {
 
     // MARK: - Logout
 
-    /// Logout — clears credentials and disconnects. Data (friends, messages, Signal sessions) is preserved.
+    /// Logout — clears credentials and disconnects. Durable kit data is preserved.
     /// Call `restoreSession()` + `connect()` to resume, or `login()`/`loginAndProvision()` for a fresh session.
     public func logout() async throws {
         disconnect()
@@ -1666,7 +1598,6 @@ public class ObscuraClient {
         userId = nil
         username = nil
         deviceId = nil
-        _recoveryPhrase = nil
         _messenger = nil
         _authState = .loggedOut
         await api.clearToken()
@@ -1681,8 +1612,8 @@ public class ObscuraClient {
         persistentSignalStore?.clearAll()
         persistentSignalStore = nil
         await friends.clearAll()
-        await messages.clearAll()
         await devices.clearAll()
+        try? await entries.wipe()
         // The §3.3 rule 2 carve-out, and the reason it is worded as a MUST: the inbox holds
         // DECRYPTED plaintext — full payloads, the resolved sender name, the model key. A wipe that
         // spared it would leave exactly the content a revocation is meant to destroy.
@@ -1690,6 +1621,27 @@ public class ObscuraClient {
     }
 
     // MARK: - Internal: Send to all devices of a user
+
+    internal func sendSerializedClientMessage(to targetUserId: String, data: Data) async throws {
+        let messenger = try requireMessenger()
+        let bundles = try await messenger.fetchPreKeyBundles(targetUserId)
+        await rateLimitDelay()
+
+        for bundle in bundles {
+            do {
+                try await messenger.processServerBundle(bundle, userId: targetUserId)
+            } catch {
+                logger.sessionEstablishFailed(userId: targetUserId, error: "\(error)")
+                continue
+            }
+            try await messenger.queueMessage(
+                targetDeviceId: bundle.deviceId,
+                clientMessageData: data,
+                targetUserId: targetUserId
+            )
+        }
+        _ = try await messenger.flushMessages()
+    }
 
     private func sendToAllDevices(_ targetUserId: String, _ msg: Obscura_Client_V1_ClientMessage, excludingDeviceId: String? = nil) async throws {
         let messenger = try requireMessenger()
@@ -1880,7 +1832,6 @@ public class ObscuraClient {
 
         case .unimplemented:
             // Diagnose and acknowledge declared unsupported arms so they cannot wedge the queue.
-            // DEVICE_RECOVERY_ANNOUNCE has a live sender in this kit.
             logger.log("RECV UNIMPLEMENTED arm=\(WireCodec.decodeMessageType(msg.payload)) "
                 + "from=\(sourceUserId.prefix(8)) (dropped and acked — see KIT_API.md §4.2)")
             return true
@@ -1925,23 +1876,6 @@ public class ObscuraClient {
                         + "(local status=\(existing?.status.rawValue ?? "none"); expected pendingSent)")
                 }
             }
-
-        case .text?:
-            let messageData = Message(
-                messageId: "msg_\(UUID().uuidString)",
-                conversationId: sourceUserId,
-                // CLAMPED, and the clamp is a crash fix before it is an ordering fix. `msg.timestamp`
-                // is peer-supplied proto3 `uint64` and `messages.add` binds it to an INTEGER column;
-                // GRDB binds `UInt64` through the NON-FAILABLE `Int64(self)`, which TRAPS above
-                // `Int64.max`. A trap is not catchable, so `processEnvelope`'s do/catch cannot
-                // contain it — the app dies. Any authenticated user can send a TEXT.
-                timestamp: clampFutureTimestamp(msg.timestamp),
-                content: msg.text.text,
-                isSent: false,
-                // Sending device UUID, proven by the session MAC.
-                authorDeviceId: senderDeviceId
-            )
-            try await messages.add(sourceUserId, messageData)
 
         case .deviceAnnounce?:
             let announce = msg.deviceAnnounce
@@ -2005,65 +1939,7 @@ public class ObscuraClient {
             await SignalStoreRegistry.shared.store.clearAll()
 
         case .modelSignal?:
-            // Ephemeral signal — typed payload; identity comes from the authenticated
-            // envelope (sender from the decrypted session, display name from the friend
-            // graph), never from the payload.
-            let sig = msg.modelSignal
-            let signalName = WireCodec.decodeSignalKind(sig.kind)
-            if !sig.model.isEmpty, !signalName.isEmpty {
-                let username = await friends.getAccepted().first(where: { $0.userId == sourceUserId })?.username ?? sourceUserId
-                let payload = ModelSignalPayload(
-                    model: sig.model,
-                    signalRaw: signalName,
-                    conversationId: sig.contextID,
-                    senderUsername: username,
-                    // Sending device UUID, proven by the session MAC.
-                    authorDeviceId: senderDeviceId,
-                    timestamp: msg.timestamp
-                )
-                if signalName == "stoppedTyping" {
-                    await SignalStoreRegistry.shared.store.remove(
-                        model: sig.model, signal: "typing", data: payload.data, authorDeviceId: senderDeviceId)
-                } else {
-                    await SignalStoreRegistry.shared.store.receive(payload)
-                }
-            }
-
-        case .syncBlob?:
-            // Import state from linked device — only accept from own devices
-            guard sourceUserId == self.userId else { break }
-            if let parsed = SyncBlobExporter.parseExport(msg.syncBlob.compressedData) {
-                for f in parsed.friends {
-                    let status = FriendStatus(rawValue: f["status"] as? String ?? "") ?? .pendingSent
-                    try await friends.add(f["userId"] as? String ?? "", f["username"] as? String ?? "", status: status)
-                }
-                for m in parsed.messages {
-                    let message = Message(
-                        messageId: m["messageId"] as? String ?? UUID().uuidString,
-                        conversationId: m["conversationId"] as? String ?? "",
-                        content: m["content"] as? String ?? ""
-                    )
-                    try await messages.add(m["conversationId"] as? String ?? "", message)
-                }
-            }
-
-        case .sentSync?:
-            // Only accept sent sync from own devices. Swift has this self-guard and Kotlin does
-            // not — without it any authenticated stranger writes rows into any conversation of
-            // ours, marked `isSent: true`, i.e. attributed to us.
-            guard sourceUserId == self.userId else { break }
-            let ss = msg.sentSync
-            let messageData = Message(
-                messageId: ss.messageID,
-                conversationId: ss.recipientUsername,
-                // Clamped for the same reason as the TEXT arm: it is bound into an INTEGER column
-                // and GRDB's UInt64 binding traps above Int64.max. "Own device" is not "trusted
-                // clock" — a linked Android device stamps System.currentTimeMillis().
-                timestamp: clampFutureTimestamp(ss.timestamp),
-                content: String(data: ss.content, encoding: .utf8) ?? "",
-                isSent: true
-            )
-            try await messages.add(ss.recipientUsername, messageData)
+            await handleModelSignal(msg, sourceUserId: sourceUserId, senderDeviceId: senderDeviceId)
 
         case .sessionReset?:
             // Sessions are keyed on device UUID, so reset every session for this user.
@@ -2080,6 +1956,47 @@ public class ObscuraClient {
                 + "has no handler; refusing to ack it away")
         }
         return isNew
+    }
+
+    internal func handleModelSignal(
+        _ msg: Obscura_Client_V1_ClientMessage,
+        sourceUserId: String,
+        senderDeviceId: String
+    ) async {
+        let sig = msg.modelSignal
+        let signalName = WireCodec.decodeSignalKind(sig.kind)
+        guard !sig.model.isEmpty, !signalName.isEmpty else { return }
+
+        guard let localUserId = userId,
+              let participants = parseCanonicalTwoPartyContext(sig.contextID),
+              participants.contains(localUserId),
+              participants.contains(sourceUserId),
+              await friends.isFriend(sourceUserId)
+        else {
+            logger.log("inbound model signal dropped: contextId is not the authenticated accepted conversation")
+            return
+        }
+
+        let username = await friends.getAccepted()
+            .first(where: { $0.userId == sourceUserId })?.username ?? sourceUserId
+        let payload = ModelSignalPayload(
+            model: sig.model,
+            signalRaw: signalName,
+            conversationId: sig.contextID,
+            senderUsername: username,
+            authorDeviceId: senderDeviceId,
+            timestamp: msg.timestamp
+        )
+        if signalName == "stoppedTyping" {
+            await SignalStoreRegistry.shared.store.remove(
+                model: sig.model,
+                signal: "typing",
+                data: payload.data,
+                authorDeviceId: senderDeviceId
+            )
+        } else {
+            await SignalStoreRegistry.shared.store.receive(payload)
+        }
     }
 
     /// Write an inboxed payload to the durable inbox.
@@ -2174,26 +2091,16 @@ public class ObscuraClient {
         }
     }
 
-    // MARK: - Internal: SENT_SYNC
-
-    private func sendSentSync(conversationId: String, messageId: String, timestamp: UInt64, content: String) async throws {
-        let ownDevices = await devices.getOwnDevices()
-
-        var syncMsg = Obscura_Client_V1_ClientMessage()
-        var payload = Obscura_Client_V1_SentSync()
-        payload.recipientUsername = conversationId
-        payload.messageID = messageId
-        payload.timestamp = timestamp
-        payload.content = Data(content.utf8)
-        syncMsg.sentSync = payload
-
-        // Send only when another own device can receive the sync.
-        guard ownDevices.contains(where: { $0.deviceId != self.deviceId }) else { return }
-        do {
-            try await sendToAllDevices(self.userId!, syncMsg, excludingDeviceId: self.deviceId)
-        } catch {
-            logger.sessionEstablishFailed(userId: self.userId ?? "unknown", error: "sentSync: \(error)")
+    private static func encodeFriendsForLink(_ friends: [Friend]) -> Data {
+        let encoded = friends.map { friend -> [String: Any] in
+            [
+                "userId": friend.userId,
+                "username": friend.username,
+                "status": friend.status.rawValue,
+                "devices": friend.devices,
+            ]
         }
+        return (try? JSONSerialization.data(withJSONObject: encoded)) ?? Data()
     }
 
     // MARK: - Internal: Prekey Replenishment (matches Kotlin pattern)

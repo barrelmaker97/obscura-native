@@ -4,7 +4,36 @@ import XCTest
 /// Smoke tests for connection resilience — reconnect, ping keepalive, message survival.
 final class ReconnectTests: XCTestCase {
 
-    /// Gateway disconnect triggers auto-reconnect. Messages flow after reconnect.
+    func testFailedConnectReturnsToDisconnected() async throws {
+        let client = try ObscuraClient(apiURL: "http://127.0.0.1:1")
+
+        do {
+            try await client.connect()
+            XCTFail("an unreachable server must fail the connection")
+        } catch {
+            XCTAssertEqual(client.connectionState, .disconnected)
+        }
+    }
+
+    func testConnectIsSerializedAndIdempotent() async throws {
+        let alice = try await ObscuraTestClient.register()
+        await rateLimitDelay()
+
+        async let first: Void = alice.client.connect()
+        async let second: Void = alice.client.connect()
+        _ = try await (first, second)
+
+        let concurrentGeneration = await alice.client.gateway.connectionGeneration()
+        XCTAssertEqual(concurrentGeneration, 1)
+
+        try await alice.client.connect()
+        let repeatedGeneration = await alice.client.gateway.connectionGeneration()
+        XCTAssertEqual(repeatedGeneration, 1)
+
+        alice.disconnectWebSocket()
+    }
+
+    /// Gateway disconnect triggers auto-reconnect. Entries flow after reconnect.
     func testAutoReconnect_messagesFlowAfterDrop() async throws {
         let alice = try await ObscuraTestClient.register()
         await rateLimitDelay()
@@ -16,10 +45,12 @@ final class ReconnectTests: XCTestCase {
         await rateLimitDelay()
         try await ObscuraTestClient.becomeFriends(alice, bob)
 
-        // Verify messaging works
-        try await alice.send(to: bob.userId!, "before drop")
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "testModel", entryId: "before-drop",
+            payload: Data("before drop".utf8)
+        )
         let msg1 = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg1.text, "before drop")
+        XCTAssertEqual(msg1.type, "MODEL_SYNC")
 
         // Simulate gateway disconnect on Bob's side
         await bob.client.gateway.disconnect()
@@ -33,10 +64,12 @@ final class ReconnectTests: XCTestCase {
         XCTAssertEqual(bob.client.connectionState, .connected,
                        "Bob should auto-reconnect after gateway drop")
 
-        // Alice sends another message — should arrive on reconnected Bob
-        try await alice.send(to: bob.userId!, "after reconnect")
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "testModel", entryId: "after-reconnect",
+            payload: Data("after reconnect".utf8)
+        )
         let msg2 = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg2.text, "after reconnect")
+        XCTAssertEqual(msg2.type, "MODEL_SYNC")
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()
@@ -132,10 +165,12 @@ final class ReconnectTests: XCTestCase {
         XCTAssertEqual(alice.client.connectionState, .connected)
         XCTAssertEqual(bob.client.connectionState, .connected)
 
-        // Messages should still flow
-        try await alice.send(to: bob.userId!, "still alive")
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "testModel", entryId: "still-alive",
+            payload: Data("still alive".utf8)
+        )
         let msg = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg.text, "still alive")
+        XCTAssertEqual(msg.type, "MODEL_SYNC")
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()
