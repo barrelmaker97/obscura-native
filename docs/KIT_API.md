@@ -177,33 +177,13 @@ attribution before applying it. Payload fields never override either source.
 | Payload arm | Kotlin | Swift | Notes |
 |---|---|---|---|
 | `MODEL_SYNC` | inboxed | inboxed | Primary app payload. |
-| `CONTENT_REFERENCE` | inboxed | inboxed | Remains live while public senders exist. |
-| `CHUNKED_CONTENT_REFERENCE` | inboxed | inboxed | Same compatibility rule as content references. |
 | `FRIEND_REQUEST` | kit-internal | kit-internal | Friendship bootstrap. |
 | `FRIEND_RESPONSE` | kit-internal | kit-internal | Friendship bootstrap. |
 | `DEVICE_ANNOUNCE` | kit-internal | kit-internal | Linked-device state. |
 | `DEVICE_LINK_APPROVAL` | kit-internal | unimplemented | Swift has no receive handler. |
 | `SESSION_RESET` | kit-internal | kit-internal | Signal session repair. |
-| `SYNC_BLOB` | unimplemented | unimplemented | Legacy native message-model input; no app reader. |
-| `SENT_SYNC` | unimplemented | unimplemented | Legacy native message-model input; no app reader. |
-| `TEXT` | unimplemented | unimplemented | Legacy native message-model input; no app reader. |
-| `MODEL_SIGNAL` | droppable | droppable | Ephemeral typing/read signal. |
-| `FRIEND_SYNC` | unimplemented | unimplemented | No live sender. |
-| `DEVICE_RECOVERY_ANNOUNCE` | unimplemented | unimplemented | Sender support is incomplete. |
-| `HISTORY_CHUNK` | unimplemented | unimplemented | No live receive contract. |
-| `SYNC_REQUEST` | unimplemented | unimplemented | Sync blobs are the supported path. |
-| `SETTINGS_SYNC` | unimplemented | unimplemented | No live receive contract. |
-| `READ_SYNC` | unimplemented | unimplemented | No live receive contract. |
+| `MODEL_SIGNAL` | droppable | droppable | Ephemeral typing signal. |
 | unknown/unset | inboxed | inboxed | Preserved as opaque bytes. |
-
-Unimplemented arms are not silently treated as success: the kit emits its
-normal diagnostic/security signal before acknowledging them.
-
-### 4.3 Compatibility rule
-
-Do not remove a proto arm merely because the current app no longer sends it.
-Removal requires proving that no released client or server path still emits the
-arm and that queued envelopes cannot contain it. See §11.
 
 ---
 
@@ -244,10 +224,9 @@ enough detail for the app to present per-recipient failure. Callers must not
 interpret a successful method return as proof that every device received the
 message.
 
-This explicit-audience send is the only app payload send Kotlin exposes. The
-username-resolving convenience senders are gone; `sendAttachment` /
-`sendEncryptedAttachment` still take a friend username and are the remaining
-exception.
+This explicit-audience send is the only app payload send either kit exposes.
+Attachment upload and download are byte primitives; their metadata travels
+inside the application's explicit-audience model payload.
 
 ### 5.2 Attachments
 
@@ -320,11 +299,7 @@ The native entry store is intentionally small:
 ```text
 put(model, entry)
 all(model)
-delete(model, id)
 ```
-
-The application bridge exposes `put` and `all`; it intentionally does not
-expose local deletion.
 
 `StoredEntry` contains the application-selected identifier, timestamp,
 session-attributed author device, and opaque payload bytes/JSON. The store does
@@ -337,9 +312,6 @@ not:
 - enforce expiry;
 - synchronize a local deletion to peers.
 
-`delete` is kit-local and does not synchronize to peers. Swift removes the row;
-Kotlin hides its soft-deleted row. Both make it absent from later `all` results.
-
 ### 8.2 Merge
 
 The app selects a merge rule from its local model configuration when applying
@@ -351,10 +323,6 @@ each `MODEL_SYNC`. The normative rules live in
 
 `authorDeviceId` comes from the authenticated sender device, never from payload
 data. Incoming timestamps are clamped per `NATIVE_CONTRACT.md` §2.4.
-
-The proto retains `OP_DELETE`, but the current application neither sends nor
-applies distributed deletes and excludes tombstone conformance cases. No
-distributed tombstone engine exists.
 
 ### 8.3 Expiry
 
@@ -395,12 +363,7 @@ These constraints affect compatibility work:
 - Linked devices do not automatically learn friendships created after linking.
 - Device announcements have no replay protection.
 - Remote device revocation is not implemented.
-- Several declared proto arms are unimplemented (§4.2).
-- `CONTENT_REFERENCE` and `CHUNKED_CONTENT_REFERENCE` remain live compatibility
-  surfaces while released clients can send them.
-- Encrypted backup (`/v1/backup`) and BIP39 recovery assembly are not implemented
-  in either kit. The crypto primitives are retained and unit-tested; nothing
-  calls them.
+- Encrypted backup and account-recovery assembly are not implemented.
 - Partial-recipient send failures are not visible to the application.
 - Consumed inbox envelope IDs have no durable deduplication tombstone.
 

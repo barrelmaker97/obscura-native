@@ -148,28 +148,6 @@ class ReceivePathTest {
         assertEquals("CREATE", row.op)
     }
 
-    /**
-     * SENT_SYNC lost its handler with the legacy message model, so it must now be dropped and acked
-     * rather than fall through to `routeMessage`'s kit-internal `error(...)` — which would throw,
-     * skip the ack, and leave the envelope redelivering forever.
-     */
-    @Test
-    fun `a SENT_SYNC is dropped and acked now that no handler writes messages`() = runBlocking {
-        val c = newClient()
-        val sentSync = ClientMessage.newBuilder()
-            .setSentSync(obscura.client.v1.sentSync {
-                recipientUsername = "victim"
-                messageId = "m1"
-                content = ByteString.copyFrom("forged".toByteArray())
-                timestamp = 1_700_000_000_000
-            }).build()
-
-        assertTrue(c.routeMessage(sentSync, peerUserId, "dev-peer", "env-1"))
-
-        assertEquals(0L, InboxDomain(c.db).depth(),
-            "an unimplemented arm is diagnosed and acked, never swept into the app's inbox")
-    }
-
     // ── DEVICE_ANNOUNCE: trust-on-first-use on the recovery key ───────────────
 
     private val phrase = com.obscura.kit.crypto.Bip39.generateMnemonic()

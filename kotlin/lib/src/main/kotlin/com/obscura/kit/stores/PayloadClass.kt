@@ -18,13 +18,6 @@ internal enum class PayloadClass {
 
     /** Ephemeral by design, no durable delivery guarantee. MAY be acked without persistence. */
     DROPPABLE,
-
-    /**
-     * Declared protocol arms with no receive contract. They are diagnosed, dropped, and acked so
-     * an unsupported arm cannot wedge the queue. They remain distinct from unknown future arms,
-     * which are inboxed for forward compatibility.
-     */
-    UNIMPLEMENTED,
 }
 
 /**
@@ -54,28 +47,6 @@ internal fun classify(arm: PayloadCase): PayloadClass = when (arm) {
     // Typing indicators. client.proto says "in-memory only", and §4 permits acking these without
     // persistence — the ONLY class for which that is allowed.
     PayloadCase.MODEL_SIGNAL -> PayloadClass.DROPPABLE
-
-    // Public senders still emit these arms, so dropping them would destroy the only copy of the
-    // attachment key. Remove the senders and receive classification together.
-    PayloadCase.CONTENT_REFERENCE,
-    PayloadCase.CHUNKED_CONTENT_REFERENCE -> PayloadClass.INBOXED
-
-    // Declared but unsupported — no receive contract, so they are diagnosed, dropped and acked.
-    //
-    // TEXT, SENT_SYNC and SYNC_BLOB were kit-internal while the kit carried its own message model.
-    // That model is gone: the app's data path is MODEL_SYNC into the inbox. They are NOT reclassified
-    // as INBOXED, because §4.2 reserves the inbox for content the app can interpret — the app has no
-    // reader for these arms, so inboxing them would only produce rows it must discard, and would make
-    // the inbox the place removed kit work goes to be forgotten.
-    PayloadCase.TEXT,
-    PayloadCase.SENT_SYNC,
-    PayloadCase.SYNC_BLOB,
-    PayloadCase.DEVICE_RECOVERY_ANNOUNCE,
-    PayloadCase.HISTORY_CHUNK,
-    PayloadCase.SYNC_REQUEST,
-    PayloadCase.FRIEND_SYNC,
-    PayloadCase.SETTINGS_SYNC,
-    PayloadCase.READ_SYNC -> PayloadClass.UNIMPLEMENTED
 
     // Unknown or future arm, and PAYLOAD_NOT_SET. Inbox it unparsed rather than destroy it.
     else -> PayloadClass.INBOXED

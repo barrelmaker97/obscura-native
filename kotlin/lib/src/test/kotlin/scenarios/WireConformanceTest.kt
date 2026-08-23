@@ -75,7 +75,6 @@ class WireConformanceTest {
             .setOp(WireCodec.encodeOp(appOp))
             .setTimestamp(ts)
             .setData(ByteString.copyFrom(JSONObject(dataMap).toString().toByteArray()))
-            .setAuthorDeviceId("d0")
             .build()
 
         val decoded = Client.ModelSync.parseFrom(proto.toByteArray())

@@ -95,25 +95,6 @@ class EntryStoreTest {
     }
 
     @Test
-    fun `delete removes an entry from all`() = runBlocking {
-        store.put("story", entry("s1"))
-        store.put("story", entry("s2"))
-
-        store.delete("story", "s1")
-
-        assertEquals(listOf("s2"), store.all("story").map { it.id })
-    }
-
-    @Test
-    fun `deleting something that is not there is a no-op`() = runBlocking {
-        store.put("story", entry("s1"))
-
-        store.delete("story", "nope")
-
-        assertEquals(1, store.all("story").size)
-    }
-
-    @Test
     fun `all on an unknown model is empty rather than an error`() = runBlocking {
         assertEquals(emptyList<StoredEntry>(), store.all("neverSeen"))
     }

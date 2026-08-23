@@ -119,9 +119,7 @@ class TwoDeviceSendTests {
 
         val onD1 = runCatching { alice1!!.waitForMessage(15_000) }
         val onD2 = runCatching { alice2!!.waitForMessage(15_000) }
-        // `.text` is the compatibility TEXT arm's field and is empty for MODEL_SYNC; content lives
-        // in the opaque payload. This test is about both devices decrypting, so it must read the
-        // content from wherever it actually is.
+        // Content lives in the opaque MODEL_SYNC payload.
         val d1ok = onD1.getOrNull()?.content() == text
         val d2ok = onD2.getOrNull()?.content() == text
 

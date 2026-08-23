@@ -91,33 +91,4 @@ class EdgeCaseTests {
         assertEquals(ConnectionState.DISCONNECTED, alice.connectionState.value)
         assertEquals(ConnectionState.DISCONNECTED, bob.connectionState.value)
     }
-
-    @Test @Order(5)
-    fun `EC-5 - Attachment sent to friend with size check`() = runBlocking {
-        assumeTrue(checkServer())
-
-        val alice = registerAndConnect("ecsa")
-        val bob = registerAndConnect("ecsb")
-        becomeFriends(alice, bob)
-
-        // Upload varying sizes and send to friend
-        val payload = ByteArray(1024) { (it % 256).toByte() }
-        val (attId, _) = alice.uploadAttachment(payload)
-        assertTrue(attId.isNotEmpty())
-
-        alice.sendAttachment(bob.username!!, attId, ByteArray(32), ByteArray(12), "application/octet-stream", payload.size.toLong())
-
-        val msg = bob.waitForType("CONTENT_REFERENCE")
-        assertEquals(alice.userId, msg.sourceUserId)
-
-        val ref = msg.raw!!.contentReference
-        assertEquals(payload.size.toLong(), ref.sizeBytes, "Size in reference should match uploaded size")
-
-        val downloaded = bob.downloadAttachment(ref.attachmentId)
-        assertEquals(payload.size, downloaded.size, "Downloaded size should match")
-        assertArrayEquals(payload, downloaded, "Content should match exactly")
-
-        alice.disconnect()
-        bob.disconnect()
-    }
 }

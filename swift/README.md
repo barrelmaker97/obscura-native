@@ -109,7 +109,7 @@ each other, so broader behavioral interoperability is not claimed.
 - Device linking: QR/code generation, validation, approval flow
 - Ephemeral signals: typing indicators, in-memory only, audience fails closed
 - Self-sync: own *other* devices get your content too, and the sending device does not
-- Schema migrations: `ObscuraSchema` + `DatabaseMigrator`, with the erase-on-change tripwire off
+- One current pre-release schema owned by `ObscuraSchema`
 - Cross-platform: the **wire format** interoperates with Android
 
 ## What doesn't work yet
@@ -117,7 +117,7 @@ each other, so broader behavioral interoperability is not claimed.
 - Group-targeted sync has no server test
 - Entry expiry is not implemented on either platform
 - No remote device revocation; use `api.deleteDevice` from a device you still hold
-- No FRIEND_SYNC — a second device learns about friends at link time only, not afterwards
+- A linked device learns the friend graph at link time only, not afterwards
 
 ## Build & Test
 

@@ -75,7 +75,14 @@ class AckSemanticsTests {
         }
 
         val plaintext = ClientMessage.newBuilder()
-            .setText(obscura.client.v1.textMessage { this.text = "this will be corrupted" })
+            .setModelSync(
+                obscura.client.v1.Client.ModelSync.newBuilder()
+                    .setModel("corrupt")
+                    .setId("corrupt-${UUID.randomUUID()}")
+                    .setOp(obscura.client.v1.Client.ModelSync.Op.OP_CREATE)
+                    .setTimestamp(System.currentTimeMillis())
+                    .setData(ByteString.copyFromUtf8("this will be corrupted"))
+            )
             .setTimestamp(System.currentTimeMillis())
             .build()
             .toByteArray()

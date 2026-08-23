@@ -3,20 +3,17 @@
   "kind": "wire",
   "description": "Client wire mapping + round-trip conformance. Pins the ClientMessage payload arm to app type, ModelSync.Op and SignalKind mappings, and value-preserving ModelSync round trips. Byte-canonicity is intentionally not required; see docs/NATIVE_CONTRACT.md section 3.",
   "messageTypes": [
-    { "wire": "text", "app": "TEXT" },
     { "wire": "friend_request", "app": "FRIEND_REQUEST" },
     { "wire": "model_sync", "app": "MODEL_SYNC" },
     { "wire": "model_signal", "app": "MODEL_SIGNAL" }
   ],
   "modelSyncOps": [
     { "wire": "OP_CREATE", "app": "CREATE" },
-    { "wire": "OP_UPDATE", "app": "UPDATE" },
-    { "wire": "OP_DELETE", "app": "DELETE" }
+    { "wire": "OP_UPDATE", "app": "UPDATE" }
   ],
   "signalKinds": [
     { "wire": "SIGNAL_KIND_TYPING", "app": "typing" },
-    { "wire": "SIGNAL_KIND_STOPPED_TYPING", "app": "stoppedTyping" },
-    { "wire": "SIGNAL_KIND_READ", "app": "read" }
+    { "wire": "SIGNAL_KIND_STOPPED_TYPING", "app": "stoppedTyping" }
   ],
   "roundTrip": [
     {
@@ -37,16 +34,6 @@
         "op": "UPDATE",
         "timestamp": 1706389200001,
         "data": { "z_last": "1", "a_first": "2", "conversationId": "uA_uB" }
-      }
-    },
-    {
-      "name": "ModelSync DELETE (tombstone) round-trips with its op and routing data intact",
-      "modelSync": {
-        "model": "pix",
-        "id": "pix_1706389200_ghi",
-        "op": "DELETE",
-        "timestamp": 1706389200002,
-        "data": { "conversationId": "uA_uB", "_deleted": true }
       }
     }
   ]

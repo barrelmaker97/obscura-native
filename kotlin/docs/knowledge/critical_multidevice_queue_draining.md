@@ -6,7 +6,7 @@ type: feedback
 
 `befriend()` and `sendToAllDevices()` send to EVERY device of the target user. If Bob has devices bob1 and bob2, both receive the FRIEND_REQUEST.
 
-**The bug:** In setup, if you only call `bob1.waitForMessage()` to drain the FRIEND_REQUEST, bob2's WebSocket queue still has it. When test 2 calls `bob2.waitForMessage()` expecting a TEXT, it gets the stale FRIEND_REQUEST instead.
+**The bug:** In setup, if you only call `bob1.waitForMessage()` to drain the FRIEND_REQUEST, bob2's WebSocket queue still has it. When test 2 calls `bob2.waitForMessage()` expecting MODEL_SYNC, it gets the stale FRIEND_REQUEST instead.
 
 **The fix:** In `@BeforeAll` setup, connect ALL devices before befriending, and drain ALL of them:
 ```kotlin

@@ -172,7 +172,6 @@ The envelope loop in `connect()` handles all incoming messages automatically:
 - FRIEND_RESPONSE → updates friend status
 - MODEL_SYNC → written to `client.inbox` as a durable row, then acked (an ack is a DELETE, so the write comes first)
 - DEVICE_ANNOUNCE → updates friend's device list
-- TEXT / SENT_SYNC / SYNC_BLOB → diagnosed, dropped, and acked as unimplemented
 
 The application drains `client.inbox`, authorizes and merges the opaque payload,
 writes the result through `client.entries`, then calls `consume`.

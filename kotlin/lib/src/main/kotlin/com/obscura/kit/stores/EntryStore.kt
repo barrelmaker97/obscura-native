@@ -25,7 +25,7 @@ data class StoredEntry(
  * The other half of the thin kit's app-facing surface: `InboxDomain` is how messages arrive,
  * this is where the app keeps what it made of them. Together they are the whole data path.
  *
- * The API is `put` / `all` / `delete`. `put` is a blind upsert; the app resolves merge before
+ * The API is `put` / `all`. `put` is a blind upsert; the app resolves merge before
  * writing. This store has no schema parser, query layer, merge engine, or expiry policy.
  * `all(model)` therefore loads every live entry for that model.
  */
@@ -46,8 +46,6 @@ class EntryStore internal constructor(private val db: ObscuraDatabase) {
             data_ = entry.data,
             timestamp = entry.sentAt,
             author_device_id = entry.authorDeviceId,
-            deleted = 0L,
-            ttl_expires_at = null,
         )
     }
 
@@ -63,13 +61,4 @@ class EntryStore internal constructor(private val db: ObscuraDatabase) {
         }
     }
 
-    /**
-     * Remove an entry.
-     *
-     * This is a local soft delete: the row remains on disk and [all] filters it out. The flag is
-     * not synchronized and is not a distributed tombstone.
-     */
-    suspend fun delete(model: String, id: String) = withContext(dispatcher) {
-        db.modelEntryQueries.markDeleted(System.currentTimeMillis(), model, id)
-    }
 }

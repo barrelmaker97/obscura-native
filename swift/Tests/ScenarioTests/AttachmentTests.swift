@@ -43,42 +43,4 @@ final class AttachmentTests: XCTestCase {
         XCTAssertEqual(downloaded[1], 0xD8)
     }
 
-    // MARK: - 6.2: Send CONTENT_REFERENCE to friend via server
-
-    func testScenario6_2_ContentReferenceDelivery() async throws {
-        let alice = try await ObscuraTestClient.register()
-        await rateLimitDelay()
-        let bob = try await ObscuraTestClient.register()
-        await rateLimitDelay()
-
-        // Upload attachment
-        let blob = Data(repeating: 0xBB, count: 500)
-        let uploadResult = try await alice.api.uploadAttachment(blob)
-        let attachmentId = uploadResult.id
-        await rateLimitDelay()
-
-        // Bob connects to receive
-        try await bob.connectWebSocket()
-        await rateLimitDelay()
-
-        // Alice sends CONTENT_REFERENCE message
-        var msg = Obscura_Client_V1_ClientMessage()
-        var ref = Obscura_Client_V1_ContentReference()
-        ref.attachmentID = attachmentId
-        ref.contentKey = Data(repeating: 0xCC, count: 32) // Fake AES key
-        ref.nonce = Data(repeating: 0xDD, count: 12)
-        ref.contentType = "application/octet-stream"
-        ref.sizeBytes = 500
-        msg.contentReference = ref
-        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
-        try await alice.sendRaw(to: bob.userId!, try msg.serializedData())
-        await rateLimitDelay()
-
-        // Bob receives
-        let received = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(received.type, "CONTENT_REFERENCE", "Type should be CONTENT_REFERENCE (25)")
-        XCTAssertEqual(received.sourceUserId, alice.userId!)
-
-        bob.disconnectWebSocket()
-    }
 }

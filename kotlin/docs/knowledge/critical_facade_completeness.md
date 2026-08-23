@@ -6,7 +6,9 @@ type: feedback
 
 The rule: **supported user behavior uses the public facade.**
 
-If you find yourself writing `ClientMessage.newBuilder().setType(...)` in a test, stop. Use the facade instead: `send()`, `sendAttachment()`, `announceDeviceRevocation()`, etc.
+If you find yourself writing `ClientMessage.newBuilder()` in a test, stop. Use
+the facade instead: `send()`, `uploadAttachment()`,
+`announceDeviceRevocation()`, etc.
 
 `send()` is the only app-payload send. It takes explicit `recipientUserIds` — a
 helper that resolves an audience from a friend username would be the kit

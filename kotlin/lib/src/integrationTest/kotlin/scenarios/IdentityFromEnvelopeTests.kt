@@ -38,10 +38,10 @@ class IdentityFromEnvelopeTests {
         assertEquals(alice.deviceId, msg.senderDeviceId,
             "senderDeviceId must be Alice's real device UUID (proven by the session that decrypted)")
 
-        // (2) The DISPLAY NAME is NOT on the wire for a TEXT payload — it is empty here. The only
+        // (2) The DISPLAY NAME is NOT on a MODEL_SYNC payload — it is empty here. The only
         // place Bob has Alice's name is his FRIEND GRAPH, keyed on the envelope's user id.
         assertEquals("", msg.username,
-            "a TEXT payload carries no display name; the name must come from the graph, not the wire")
+            "application payloads carry no display name; the name must come from the graph")
         val aliceInGraph = bob.friendList.value.firstOrNull { it.userId == alice.userId }
         assertNotNull(aliceInGraph, "Bob's friend graph must contain Alice keyed on her envelope user id")
         assertEquals(alice.username, aliceInGraph!!.username,

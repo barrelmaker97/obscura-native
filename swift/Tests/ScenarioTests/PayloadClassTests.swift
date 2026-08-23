@@ -14,13 +14,9 @@ final class PayloadClassTests: XCTestCase {
     /// `CaseIterable` — it has associated values — so the list is written out, and
     /// ``testTheArmListMatchesTheGeneratedOneof`` guards it against drift.
     private static let allArms: [Obscura_Client_V1_ClientMessage.OneOf_Payload] = [
-        .text(.init()),
-        .friendRequest(.init()), .friendResponse(.init()), .friendSync(.init()),
+        .friendRequest(.init()), .friendResponse(.init()),
         .sessionReset(.init()),
-        .deviceLinkApproval(.init()), .deviceAnnounce(.init()), .deviceRecoveryAnnounce(.init()),
-        .historyChunk(.init()), .settingsSync(.init()), .readSync(.init()),
-        .syncBlob(.init()), .sentSync(.init()),
-        .contentReference(.init()), .chunkedContentReference(.init()), .syncRequest(.init()),
+        .deviceLinkApproval(.init()), .deviceAnnounce(.init()),
         .modelSync(.init()), .modelSignal(.init()),
     ]
 
@@ -31,7 +27,7 @@ final class PayloadClassTests: XCTestCase {
     /// case per arm and returns `""` for anything it does not know. An arm added to the proto but
     /// not to that switch fails here.
     func testTheArmListMatchesTheGeneratedOneof() {
-        XCTAssertEqual(Self.allArms.count, 18, "client.proto declares 18 payload arms")
+        XCTAssertEqual(Self.allArms.count, 7, "client.proto declares seven payload arms")
 
         for arm in Self.allArms {
             XCTAssertFalse(WireCodec.decodeMessageType(arm).isEmpty,
@@ -61,21 +57,8 @@ final class PayloadClassTests: XCTestCase {
         XCTAssertEqual(WireCodec.decodeMessageType(droppable.first), "MODEL_SIGNAL")
     }
 
-    /// §4.2's distinction, and the reason `.unimplemented` exists at all: the inbox fallback keys on
-    /// absence from the **classification table**, not absence from the handler. If these landed in
-    /// the inbox it would become the place unimplemented kit work goes to be forgotten.
-    func testClassifiedButUnimplementedArmsAreNotSweptIntoTheInbox() {
-        let unimplemented: [Obscura_Client_V1_ClientMessage.OneOf_Payload] = [
-            .text(.init()), .sentSync(.init()), .syncBlob(.init()), .friendSync(.init()),
-            .deviceRecoveryAnnounce(.init()), .historyChunk(.init()), .syncRequest(.init()),
-            .settingsSync(.init()), .readSync(.init()),
-        ]
-
-        for arm in unimplemented {
-            XCTAssertEqual(classify(arm), .unimplemented,
-                           "\(WireCodec.decodeMessageType(arm)) is classified in §4 but implemented "
-                           + "by neither kit — it must not become inbox fodder")
-        }
+    func testSwiftLinkApprovalGapIsExplicit() {
+        XCTAssertEqual(classify(.deviceLinkApproval(.init())), .unimplemented)
     }
 
     /// Kit-owned state stays kit-owned; none of it may reach an app-readable inbox.
@@ -114,17 +97,8 @@ final class PayloadClassTests: XCTestCase {
             "DEVICE_ANNOUNCE": .kitInternal,
             "SESSION_RESET": .kitInternal,
             "MODEL_SIGNAL": .droppable,
-            "SYNC_BLOB": .unimplemented, "SENT_SYNC": .unimplemented, "TEXT": .unimplemented,
-            "DEVICE_RECOVERY_ANNOUNCE": .unimplemented, "HISTORY_CHUNK": .unimplemented,
-            "SYNC_REQUEST": .unimplemented, "SETTINGS_SYNC": .unimplemented,
-            "READ_SYNC": .unimplemented,
             // See `divergesFromKotlin` below.
             "DEVICE_LINK_APPROVAL": .unimplemented,
-            // Deprecated on the wire but still a known arm, so it is diagnosed,
-            // dropped, and acked rather than inboxed as unknown bytes.
-            "FRIEND_SYNC": .unimplemented,
-            // Attachment references carry app-owned key material.
-            "CONTENT_REFERENCE": .inboxed, "CHUNKED_CONTENT_REFERENCE": .inboxed,
         ]
 
         XCTAssertEqual(expected.count, Self.allArms.count, "every arm needs a cross-kit expectation")

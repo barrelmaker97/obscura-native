@@ -268,8 +268,8 @@ kind and the two content enums (`EncryptedMessage.Type` is transport, not conten
 The message kind is the `ClientMessage.payload` **oneof**: exactly one arm is
 set, and *which* arm is set is the message type — there is no separate `Type`
 enum to keep in sync (a kind/content mismatch is unrepresentable). The app-facing
-type string is the oneof field name upper-snake-cased (`text` → `"TEXT"`,
-`model_sync` → `"MODEL_SYNC"`).
+type string is the oneof field name upper-snake-cased (`friend_request` →
+`"FRIEND_REQUEST"`, `model_sync` → `"MODEL_SYNC"`).
 
 The app never sees the `OP_`/`SIGNAL_KIND_` wire prefixes on the two enums that
 remain. A kit MUST map:

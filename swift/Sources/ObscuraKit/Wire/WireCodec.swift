@@ -14,35 +14,31 @@ import Foundation
 /// Tests reach it via `@testable import ObscuraKit`.
 enum WireCodec {
 
-    // MARK: ModelSync.Op <-> app string ("CREATE" / "UPDATE" / "DELETE")
+    // MARK: ModelSync.Op <-> app string ("CREATE" / "UPDATE")
 
-    static func encodeOp(_ app: String) -> Obscura_Client_V1_ModelSync.Op {
+    static func encodeOp(_ app: String) throws -> Obscura_Client_V1_ModelSync.Op {
         switch app.uppercased() {
         case "UPDATE": return .update
-        case "DELETE": return .delete
         case "CREATE": return .create
-        // Compatibility and unknown local writes default to CREATE.
-        default: return .create
+        default: throw ObscuraClient.ObscuraError.invalidArgument("Unsupported model op: \(app)")
         }
     }
 
     static func decodeOp(_ op: Obscura_Client_V1_ModelSync.Op) -> String {
         switch op {
         case .update: return "UPDATE"
-        case .delete: return "DELETE"
         case .create: return "CREATE"
         // OP_UNSPECIFIED (wire 0) is never sent by a conforming kit; treat as CREATE.
         default: return "CREATE"
         }
     }
 
-    // MARK: SignalKind <-> app string ("typing" / "stoppedTyping" / "read")
+    // MARK: SignalKind <-> app string ("typing" / "stoppedTyping")
 
     static func encodeSignalKind(_ app: String) -> Obscura_Client_V1_SignalKind {
         switch app {
         case "typing": return .typing
         case "stoppedTyping": return .stoppedTyping
-        case "read": return .read
         default: return .unspecified
         }
     }
@@ -51,7 +47,6 @@ enum WireCodec {
         switch kind {
         case .typing: return "typing"
         case .stoppedTyping: return "stoppedTyping"
-        case .read: return "read"
         default: return ""
         }
     }
@@ -62,23 +57,12 @@ enum WireCodec {
     /// upper-snake. An unset payload (or `.none`) maps to "".
     static func decodeMessageType(_ payload: Obscura_Client_V1_ClientMessage.OneOf_Payload?) -> String {
         switch payload {
-        case .text?: return "TEXT"
         case .friendRequest?: return "FRIEND_REQUEST"
         case .friendResponse?: return "FRIEND_RESPONSE"
         case .sessionReset?: return "SESSION_RESET"
         case .deviceLinkApproval?: return "DEVICE_LINK_APPROVAL"
         case .deviceAnnounce?: return "DEVICE_ANNOUNCE"
-        case .deviceRecoveryAnnounce?: return "DEVICE_RECOVERY_ANNOUNCE"
-        case .historyChunk?: return "HISTORY_CHUNK"
-        case .settingsSync?: return "SETTINGS_SYNC"
-        case .readSync?: return "READ_SYNC"
-        case .syncBlob?: return "SYNC_BLOB"
-        case .sentSync?: return "SENT_SYNC"
-        case .contentReference?: return "CONTENT_REFERENCE"
-        case .chunkedContentReference?: return "CHUNKED_CONTENT_REFERENCE"
-        case .syncRequest?: return "SYNC_REQUEST"
         case .modelSync?: return "MODEL_SYNC"
-        case .friendSync?: return "FRIEND_SYNC"
         case .modelSignal?: return "MODEL_SIGNAL"
         case .none: return ""
         }

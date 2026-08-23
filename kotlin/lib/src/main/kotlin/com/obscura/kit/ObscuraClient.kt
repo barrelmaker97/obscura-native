@@ -43,9 +43,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 data class ReceivedMessage(
     val type: String,
-    val text: String = "",
     val username: String = "",
-    val accepted: Boolean = false,
     val sourceUserId: String = "",
     val senderDeviceId: String? = null,
     val raw: ClientMessage? = null
@@ -768,7 +766,7 @@ class ObscuraClient(
                     val msg = decrypted.clientMessage
                     val sourceUserId = decrypted.sourceUserId
 
-                    log("RECV ${msg.payloadCase.name} from=${sourceUserId.take(8)} device=${decrypted.senderDeviceId.take(8)} text=${msg.text.text.take(40)}")
+                    log("RECV ${msg.payloadCase.name} from=${sourceUserId.take(8)} device=${decrypted.senderDeviceId.take(8)}")
 
                     // 2. PERSIST (durable). routeMessage's handlers write to the SQLDelight store
                     // (e.g. inbox.put; friends.add). This is the source of truth. If it throws, we
@@ -790,9 +788,7 @@ class ObscuraClient(
                     }
                     val received = ReceivedMessage(
                         type = WireCodec.decodeType(msg.payloadCase),
-                        text = msg.text.text,
                         username = username,
-                        accepted = msg.payloadCase == ClientMessage.PayloadCase.FRIEND_RESPONSE && msg.friendResponse.accepted,
                         sourceUserId = sourceUserId,
                         senderDeviceId = decrypted.senderDeviceId,
                         raw = msg
@@ -883,11 +879,6 @@ class ObscuraClient(
     ): Boolean {
         when (classify(msg.payloadCase)) {
             PayloadClass.INBOXED -> return inboxMessage(msg, sourceUserId, senderDeviceId, envelopeId)
-
-            PayloadClass.UNIMPLEMENTED ->
-                // Diagnosed and acknowledged so a declared unsupported arm cannot wedge the queue.
-                log("RECV UNIMPLEMENTED arm=${msg.payloadCase.name} from=${sourceUserId.take(8)} " +
-                    "(dropped and acked — see KIT_API.md §4.2)")
 
             PayloadClass.DROPPABLE, PayloadClass.KIT_INTERNAL -> when (msg.payloadCase) {
                 ClientMessage.PayloadCase.FRIEND_REQUEST -> handleFriendRequest(msg, sourceUserId)
@@ -1118,7 +1109,10 @@ class ObscuraClient(
             // the device from the decrypted session, the display name from the friend graph.
             // authorDeviceId is the sending device UUID proven by the session
             // MAC; a user id in that field would be a false claim.
-            val authorDeviceId = senderDeviceId ?: "unknown"
+            val authorDeviceId = senderDeviceId ?: run {
+                log("SIGNAL DROPPED (inbound): authenticated sender device is missing")
+                return
+            }
             val senderUsername = friends.getAccepted().find { it.userId == sourceUserId }?.username ?: sourceUserId
             val data = mapOf<String, Any?>(
                 "conversationId" to sig.contextId,
@@ -1184,10 +1178,7 @@ class ObscuraClient(
 
     // Attachment convenience methods resolve friend usernames. App entry sends use explicit
     // recipient user ids through `send` (SPEC §0.4).
-    suspend fun sendAttachment(friendUsername: String, attachmentId: String, contentKey: ByteArray, nonce: ByteArray, mimeType: String, sizeBytes: Long) =
-        messagingManager.sendAttachment(friendUsername, attachmentId, contentKey, nonce, mimeType, sizeBytes)
-    suspend fun sendEncryptedAttachment(friendUsername: String, plaintext: ByteArray, mimeType: String = "application/octet-stream") =
-        messagingManager.sendEncryptedAttachment(friendUsername, plaintext, mimeType)
+
     /**
      * Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit,
      * paired with [inbox] on the receive side and [entries] for local storage.

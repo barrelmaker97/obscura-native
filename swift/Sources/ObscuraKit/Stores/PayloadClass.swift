@@ -56,19 +56,6 @@ func classify(_ payload: Obscura_Client_V1_ClientMessage.OneOf_Payload?) -> Payl
     case .modelSignal?:
         return .droppable
 
-    // Public senders still emit these arms, so dropping them would destroy the only copy of the
-    // attachment key. Remove senders and receive classification together.
-    case .contentReference?, .chunkedContentReference?:
-        return .inboxed
-
-    // Declared but unsupported on receive. TEXT, SENT_SYNC and SYNC_BLOB used to feed the deleted
-    // native message model; the app has no reader for them, so they are diagnosed and acknowledged
-    // rather than redirected into its inbox.
-    case .text?, .sentSync?, .syncBlob?, .friendSync?,
-         .deviceRecoveryAnnounce?, .historyChunk?, .syncRequest?,
-         .settingsSync?, .readSync?:
-        return .unimplemented
-
     // Unknown or future arm, and an unset payload. Inbox it unparsed rather than destroy it.
     default:
         return .inboxed

@@ -29,7 +29,7 @@ validate sender_id + sender_device_id
 decrypt through the sender device UUID's Signal session
     ↓
 classify the declared client.proto arm
-    ├─ MODEL_SYNC / content references / unknown → inbox.put
+    ├─ MODEL_SYNC / unknown → inbox.put
     ├─ friend/device/session arms              → kit-owned handler
     ├─ MODEL_SIGNAL                            → in-memory signal store
     └─ declared unimplemented arms             → diagnose and drop
@@ -45,9 +45,6 @@ The app then performs:
 ```text
 inbox.peek → authorize/merge in obscura-pix → entries.put → inbox.consume
 ```
-
-`TEXT`, `SENT_SYNC`, and `SYNC_BLOB` are unimplemented compatibility arms. The
-deleted native message model is not replaced by inbox rows the app cannot read.
 
 Signal sessions are keyed by device UUID, never `registrationId`
 (`NATIVE_CONTRACT.md` §0.10).

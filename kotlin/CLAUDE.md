@@ -47,7 +47,7 @@ schema parser.** If a task seems to require one, re-check the boundary in
 ## Three-Level Architecture
 
 1. **Level 1 (Server Protocol):** `network/APIClient.kt`, `network/GatewayConnection.kt` — REST + WebSocket transport. Server is a dumb relay.
-2. **Level 2 (Client Protocol):** `stores/MessengerDomain.kt`, `crypto/SignalStore.kt` — Signal encrypt/decrypt, the 18 client-to-client payload arms `client.proto` declares. Server never sees contents.
+2. **Level 2 (Client Protocol):** `stores/MessengerDomain.kt`, `crypto/SignalStore.kt` — Signal encrypt/decrypt and the seven live client-to-client payload arms. Server never sees contents.
 3. **Level 3 (app data):** `stores/InboxDomain.kt` + `stores/EntryStore.kt` — a durable inbox of
    decrypted rows and a blind key/value store of application entries, both keyed on an **opaque**
    model name. Payload bytes are never parsed. `wire/WireCodec.kt` owns the wire↔app-facing
@@ -87,9 +87,8 @@ GET  /v1/attachments/{id}   download blob
 
 The server also exposes `/v1/backup` (POST/GET/HEAD). The kit no longer calls
 it: the recovery/backup assembly was removed along with the legacy message
-model it serialized. `crypto/Bip39.kt`, `RecoveryKeys.kt`,
-`VerificationCode.kt` and `BackupCrypto.kt` are kept as tested primitives so
-recovery can be rebuilt on `EntryStore`.
+model it serialized. `crypto/Bip39.kt` and `RecoveryKeys.kt` remain because the inbound
+`DEVICE_ANNOUNCE` trust path verifies recovery-key signatures.
 
 ## Dependencies
 

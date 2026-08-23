@@ -10,7 +10,7 @@ final class DeviceLinkCodeTests: XCTestCase {
     /// 1. Alice registers (device 1)
     /// 2. Alice's device 2 logs in and generates link code
     /// 3. Alice's device 1 validates and approves the link code
-    /// 4. Device 2 receives DEVICE_LINK_APPROVAL + SYNC_BLOB
+    /// 4. Device 2 receives DEVICE_LINK_APPROVAL
     /// 5. Device 2 has friends and state from device 1
     func testFullLinkCodeCeremony() async throws {
         let apiURL = TestServer.apiURL

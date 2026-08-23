@@ -2,7 +2,7 @@ import XCTest
 @testable import ObscuraKit
 
 /// Matches Kotlin's EdgeCaseTests.kt
-/// Edge cases: attachment sizes, verify code stability, profile MODEL_SYNC.
+/// Edge cases: attachment sizes and profile MODEL_SYNC.
 final class EdgeCaseTests: XCTestCase {
 
     func testSmallAttachmentUploadSucceeds() async throws {
@@ -26,20 +26,6 @@ final class EdgeCaseTests: XCTestCase {
 
         let downloaded = try await alice.api.fetchAttachment(result.id)
         XCTAssertEqual(downloaded.count, medium.count)
-    }
-
-    func testVerifyCodeIsStableForSameRecoveryPhrase() async throws {
-        let phrase = RecoveryKeys.generatePhrase()
-
-        // The verification key is derived directly from the phrase.
-        let pubKey = RecoveryKeys.getPublicKey(from: phrase)
-        XCTAssertFalse(pubKey.isEmpty, "Should derive a recovery public key")
-
-        let code1 = generateVerifyCode(from: pubKey)
-        let code2 = generateVerifyCode(from: pubKey)
-        XCTAssertEqual(code1, code2, "Verify code should be deterministic")
-        XCTAssertEqual(code1.count, 4, "Should be 4 digits")
-        XCTAssertTrue(code1.allSatisfy(\.isNumber))
     }
 
     func testProfileDataSyncsViaModelSync() async throws {
