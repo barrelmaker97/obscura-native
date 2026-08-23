@@ -1,7 +1,7 @@
 import XCTest
 @testable import ObscuraKit
 
-/// Recovery phrase generation, signing, verification, and backup.
+/// Recovery crypto primitives retained for a future EntryStore-based design.
 final class RecoveryTests: XCTestCase {
 
     // MARK: - BIP39 phrase generation
@@ -77,43 +77,4 @@ final class RecoveryTests: XCTestCase {
         XCTAssertEqual(data1, data2, "Same inputs → same serialization")
     }
 
-    // MARK: - ObscuraClient recovery integration
-
-    func testGenerateRecoveryPhraseOnClient() async throws {
-        let client = try ObscuraClient(apiURL: TestServer.apiURL)
-        let phrase = client.generateRecoveryPhrase()
-
-        XCTAssertEqual(phrase.split(separator: " ").count, 12)
-        // One-time read: first call returns phrase, second returns nil
-        XCTAssertNotNil(client.getRecoveryPhrase())
-        XCTAssertNil(client.getRecoveryPhrase(), "Recovery phrase should be wiped after first read")
-        // The public key is derived from the phrase on demand — the client caches nothing. 33 bytes
-        // is a serialized Curve25519 public key (0x05 prefix + 32).
-        XCTAssertEqual(RecoveryKeys.getPublicKey(from: phrase).count, 33)
-    }
-
-    // MARK: - Backup upload/download
-
-    func testBackupUploadAndDownload() async throws {
-        let alice = try await ObscuraTestClient.register()
-        await rateLimitDelay()
-
-        // Add some state
-        try await alice.friends.add("bob-id", "bob", status: .accepted)
-
-        // Upload backup
-        do {
-            _ = try await alice.client.uploadBackup()
-            await rateLimitDelay()
-            // Download from a FRESH login (the real recovery scenario). The
-            // uploading client cached the new etag, so its own download sends
-            // If-None-Match and gets 304 Not Modified → nil, by design.
-            let restored = try await ObscuraTestClient.login(alice.username)
-            let data = try await restored.client.downloadBackup()
-            XCTAssertNotNil(data, "Should get backup data")
-        } catch {
-            // Server may not support backup endpoint — pass with warning
-            print("Backup test skipped: \(error)")
-        }
-    }
 }

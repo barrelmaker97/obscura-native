@@ -1,8 +1,7 @@
 import XCTest
 @testable import ObscuraKit
 
-/// Offline message queuing — disconnect → server queues → reconnect → receive
-/// Tests that the server holds messages for offline devices and delivers on reconnect.
+/// Offline entry queuing — disconnect → server queues → reconnect → receive.
 final class OfflineQueueTests: XCTestCase {
 
     func testOfflineMessageDelivery() async throws {
@@ -13,20 +12,21 @@ final class OfflineQueueTests: XCTestCase {
         bob.disconnectWebSocket()
         await rateLimitDelay()
 
-        // Alice sends a message while Bob is offline
-        // Server should queue it
-        try await alice.send(to: bob.userId!, "you there?")
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "testModel", entryId: "offline-one",
+            payload: Data("you there?".utf8)
+        )
         await rateLimitDelay()
 
         // Bob reconnects
         try await bob.connectWebSocket()
         await rateLimitDelay()
 
-        // Bob should receive the queued message
         let msg = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg.text, "you there?")
+        XCTAssertEqual(msg.type, "MODEL_SYNC")
         XCTAssertEqual(msg.sourceUserId, alice.userId!)
-        XCTAssertEqual(msg.type, "TEXT", "Should be TEXT")
+        let rows = try await bob.client.inbox.peek()
+        XCTAssertTrue(rows.contains { $0.entryId == "offline-one" })
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()
@@ -39,10 +39,15 @@ final class OfflineQueueTests: XCTestCase {
         bob.disconnectWebSocket()
         await rateLimitDelay()
 
-        // Alice sends multiple messages while Bob is offline
-        try await alice.send(to: bob.userId!, "message 1")
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "testModel", entryId: "offline-one",
+            payload: Data("message 1".utf8)
+        )
         await rateLimitDelay()
-        try await alice.send(to: bob.userId!, "message 2")
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "testModel", entryId: "offline-two",
+            payload: Data("message 2".utf8)
+        )
         await rateLimitDelay()
 
         // Bob reconnects
@@ -53,8 +58,9 @@ final class OfflineQueueTests: XCTestCase {
         let msg1 = try await bob.waitForMessage(timeout: 10)
         let msg2 = try await bob.waitForMessage(timeout: 10)
 
-        let texts = [msg1.text, msg2.text].sorted()
-        XCTAssertEqual(texts, ["message 1", "message 2"])
+        XCTAssertEqual([msg1.type, msg2.type], ["MODEL_SYNC", "MODEL_SYNC"])
+        let ids = try await bob.client.inbox.peek().compactMap(\.entryId).sorted()
+        XCTAssertEqual(ids, ["offline-one", "offline-two"])
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()
@@ -63,12 +69,14 @@ final class OfflineQueueTests: XCTestCase {
     func testSessionSurvivesReconnect() async throws {
         let (alice, bob) = try await ObscuraTestClient.registerPairAndBecomeFriends()
 
-        // Exchange a message to establish session
-        try await alice.send(to: bob.userId!, "before disconnect")
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "testModel", entryId: "before-disconnect",
+            payload: Data("before disconnect".utf8)
+        )
         await rateLimitDelay()
 
         let first = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(first.text, "before disconnect")
+        XCTAssertEqual(first.type, "MODEL_SYNC")
 
         // Bob disconnects and reconnects
         bob.disconnectWebSocket()
@@ -76,12 +84,14 @@ final class OfflineQueueTests: XCTestCase {
         try await bob.connectWebSocket()
         await rateLimitDelay()
 
-        // Alice sends another message (session should still work — Whisper, not PreKey)
-        try await alice.send(to: bob.userId!, "after reconnect")
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "testModel", entryId: "after-reconnect",
+            payload: Data("after reconnect".utf8)
+        )
         await rateLimitDelay()
 
         let second = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(second.text, "after reconnect")
+        XCTAssertEqual(second.type, "MODEL_SYNC")
         XCTAssertEqual(second.sourceUserId, alice.userId!)
 
         alice.disconnectWebSocket()

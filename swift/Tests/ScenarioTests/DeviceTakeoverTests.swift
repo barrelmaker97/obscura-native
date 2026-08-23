@@ -52,17 +52,16 @@ final class DeviceTakeoverTests: XCTestCase {
         let aliceFriend = await alice.friends.getFriend(bob.userId!)
         XCTAssertEqual(aliceFriend?.status, .accepted)
 
-        try await alice.send(to: bob.userId!, "Post-takeover message")
+        try await alice.client.send(
+            to: [bob.userId!],
+            modelKey: "testModel",
+            entryId: "post-takeover",
+            payload: Data("Post-takeover entry".utf8)
+        )
         let msg = try await bob.waitForMessage(timeout: 15)
-        XCTAssertEqual(msg.text, "Post-takeover message")
-
-        // Verify message persisted in both stores
-        let aliceMsgs = await alice.messages.getMessages(bob.userId!)
-        XCTAssertEqual(aliceMsgs.count, 1)
-        XCTAssertTrue(aliceMsgs[0].isSent)
-        let bobMsgs = await bob.messages.getMessages(alice.userId!)
-        XCTAssertEqual(bobMsgs.count, 1)
-        XCTAssertFalse(bobMsgs[0].isSent)
+        XCTAssertEqual(msg.type, "MODEL_SYNC")
+        let rows = try await bob.client.inbox.peek()
+        XCTAssertTrue(rows.contains { $0.entryId == "post-takeover" })
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()

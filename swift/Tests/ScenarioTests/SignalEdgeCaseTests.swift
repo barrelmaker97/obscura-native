@@ -125,10 +125,13 @@ final class SignalEdgeCaseTests: XCTestCase {
         let resetMsg = try await bob.waitForMessage(timeout: 10)
         XCTAssertEqual(resetMsg.type, "SESSION_RESET", "Bob should get SESSION_RESET")
 
-        // Alice can still message Carol (that session wasn't reset)
-        try await alice.send(to: carol.userId!, "Carol session intact")
+        // Alice can still send to Carol (that session wasn't reset)
+        try await alice.client.send(
+            to: [carol.userId!], modelKey: "testModel", entryId: "carol-session-intact",
+            payload: Data("Carol session intact".utf8)
+        )
         let carolMsg = try await carol.waitForMessage(timeout: 10)
-        XCTAssertEqual(carolMsg.text, "Carol session intact")
+        XCTAssertEqual(carolMsg.type, "MODEL_SYNC")
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()

@@ -23,26 +23,6 @@ final class PeerTimestampTests: XCTestCase {
         min(t, UInt64(Date().timeIntervalSince1970 * 1000) + 60_000)
     }
 
-    // MARK: - TEXT → MessageStore
-
-    /// `routeMessage`'s `.text` arm passed `msg.timestamp` straight into `messages.add`, which binds
-    /// it at `MessageStore.swift`'s INSERT. Reachable by any TEXT from anyone.
-    func testAClampedTextTimestampIsStorableAndAHostileOneWouldNotHaveBeen() async throws {
-        let messages = try MessageActor()
-
-        XCTAssertGreaterThan(Self.aboveInt64Max, UInt64(Int64.max),
-                             "the fixture value must actually be the one that traps")
-
-        try await messages.add("bob", Message(
-            messageId: "m1", conversationId: "bob",
-            timestamp: clamp(Self.aboveInt64Max), content: "hostile clock", isSent: false))
-
-        let stored = await messages.getMessages("bob")
-        XCTAssertEqual(stored.count, 1)
-        XCTAssertLessThanOrEqual(stored[0].timestamp, UInt64(Int64.max),
-                                 "a stored timestamp must fit in the INTEGER column it lives in")
-    }
-
     /// The clamp is an ordering fix as well as a crash fix: a far-future timestamp must not survive
     /// to win every later comparison.
     func testTheClampPullsAFarFutureTimestampBackToRoughlyNow() {

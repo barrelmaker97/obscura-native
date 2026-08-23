@@ -145,8 +145,8 @@ final class EntrySendTests: XCTestCase {
         let ownDevices = await alice1.devices.getOwnDevices()
         XCTAssertEqual(ownDevices.count, 2, "the fixture itself must be real, or nothing below means anything")
 
-        // Drain what linking put on alice2's wire (SYNC_BLOB, and the approval this kit cannot
-        // handle) so the assertion below is about the entry and not about link traffic.
+        // Drain the approval this kit cannot handle so the assertion below is about the entry and
+        // not about link traffic.
         while (try? await alice2.waitForMessage(timeout: 3)) != nil {}
         let depthAfterLinking = try await alice2.client.inbox.depth()
 

@@ -106,9 +106,9 @@ onto one dedupe key, an audience taken from peer-supplied payload. Subtraction w
   (`handleDeviceAnnounce`'s signature verification, `FriendData.recoveryPublicKey`, the
   `recovery_public_key` column), which is a receive-side defense that fails closed.
 
-  **Left Swift behind.** `TEXT`, `SENT_SYNC` and `SYNC_BLOB` are now UNIMPLEMENTED in Kotlin and
-  still kit-internal in Swift — `KIT_API.md` §4.2's first cross-kit classification divergence.
-  Neither kit inboxes them, so no app-visible row differs, but Swift must follow.
+  Swift followed on 2026-08-23: `ObscuraSchema` migration `v3` drops its `messages` table, the
+  matching model/recovery APIs and handlers are gone, and `TEXT`, `SENT_SYNC` and `SYNC_BLOB` are
+  now UNIMPLEMENTED in both kits.
 
 ## Known gaps carried forward
 
@@ -124,9 +124,7 @@ These were open when the planning documents were retired, and are not recorded a
   does not learn about friends added later; `DEVICE_LINK_APPROVAL` still carries the friends export
   at link time. Rebuilding it properly needs a `user_id` field and a new number.
 - **Swift sends `DEVICE_LINK_APPROVAL` but cannot receive one**, so a newly-linked device discards
-  the p2p keypair, recovery key, friends export and approver device list. Kotlin routes it — and
-  since Kotlin dropped the `SYNC_BLOB` push, it is now the *only* way a linked Kotlin device
-  learns the friend list.
-- **The six unimplemented payload arms** (`history_chunk`, `settings_sync`, `read_sync`,
-  `content_reference`, `chunked_content_reference`, `sync_request`) still exist in `client.proto`.
-  `content_reference` and `text` are **not** safe to remove as-is — see `KIT_API.md` §11.
+  the p2p keypair, recovery key, friends export and approver device list. Kotlin routes it; Swift
+  now has no legacy `SYNC_BLOB` fallback.
+- **Declared compatibility arms remain in `client.proto`.** Current receive classifications and
+  removal constraints are in `KIT_API.md` §4.2 and §11.

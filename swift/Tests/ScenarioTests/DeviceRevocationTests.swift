@@ -7,25 +7,24 @@ import XCTest
 /// supported multi-device messaging and local device-state operations.
 final class DeviceRevocationTests: XCTestCase {
 
-    // MARK: - 7.1: Three-way message exchange
+    // MARK: - 7.1: Two-way entry exchange
 
-    func testScenario7_1_ThreeWayMessageExchange() async throws {
-        // send() requires an accepted friendship; the handshake leaves both connected.
+    func testScenario7_1_TwoWayEntryExchange() async throws {
         let (alice, bob) = try await ObscuraTestClient.registerPairAndBecomeFriends()
 
-        // Bob receives Alice's message
-        try await alice.send(to: bob.userId!, "hi bob")
-        await rateLimitDelay()
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "testModel", entryId: "alice-to-bob",
+            payload: Data("hi bob".utf8)
+        )
+        let bobWake = try await bob.waitForMessage(timeout: 10)
+        XCTAssertEqual(bobWake.type, "MODEL_SYNC")
 
-        let msg = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg.text, "hi bob")
-
-        // Bob replies
-        try await bob.send(to: alice.userId!, "hi alice")
-        await rateLimitDelay()
-
-        let reply = try await alice.waitForMessage(timeout: 10)
-        XCTAssertEqual(reply.text, "hi alice")
+        try await bob.client.send(
+            to: [alice.userId!], modelKey: "testModel", entryId: "bob-to-alice",
+            payload: Data("hi alice".utf8)
+        )
+        let aliceWake = try await alice.waitForMessage(timeout: 10)
+        XCTAssertEqual(aliceWake.type, "MODEL_SYNC")
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()

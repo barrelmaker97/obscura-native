@@ -104,11 +104,14 @@ final class TwoDeviceSendTests: XCTestCase {
         _ = try await bob.waitForMessage(timeout: 15)      // FRIEND_RESPONSE
 
         // (a) Fresh send with the device map from the prekey fetch.
-        try await bob.send(to: alice1.userId!, "swift-2dev-a-fresh")
+        try await bob.client.send(
+            to: [alice1.userId!], modelKey: "testModel", entryId: "swift-2dev-a-fresh",
+            payload: Data("fresh".utf8)
+        )
         let a1 = try await alice1.waitForMessage(timeout: 15)
         let a2 = try await alice2.waitForMessage(timeout: 15)
-        XCTAssertEqual(a1.text, "swift-2dev-a-fresh", "Alice device 1 must decrypt the fresh send")
-        XCTAssertEqual(a2.text, "swift-2dev-a-fresh", "Alice device 2 must decrypt the fresh send")
+        XCTAssertEqual(a1.type, "MODEL_SYNC", "Alice device 1 must decrypt the fresh send")
+        XCTAssertEqual(a2.type, "MODEL_SYNC", "Alice device 2 must decrypt the fresh send")
 
         // (b) Reconnect the gateway, then send again. send() refreshes prekey bundles,
         // so this does not exercise a reconstructed client's persisted device map.
@@ -117,21 +120,22 @@ final class TwoDeviceSendTests: XCTestCase {
         try await bob.connectWebSocket()
         await rateLimitDelay()
 
-        try await bob.send(to: alice1.userId!, "swift-2dev-b-reconnect")
+        try await bob.client.send(
+            to: [alice1.userId!], modelKey: "testModel", entryId: "swift-2dev-b-reconnect",
+            payload: Data("reconnected".utf8)
+        )
         let b1 = try await alice1.waitForMessage(timeout: 15)
         let b2 = try await alice2.waitForMessage(timeout: 15)
-        print("  RESULT after sender reconnect: device1='\(b1.text)' device2='\(b2.text)'")
-        XCTAssertEqual(b1.text, "swift-2dev-b-reconnect",
+        XCTAssertEqual(b1.type, "MODEL_SYNC",
             "Alice device 1 must decrypt after the sender reconnected")
-        XCTAssertEqual(b2.text, "swift-2dev-b-reconnect",
+        XCTAssertEqual(b2.type, "MODEL_SYNC",
             "Alice device 2 must decrypt after the sender reconnected")
 
-        // Both devices persisted it (the ack is only legitimate if this is true — SPEC §0.9).
-        let stored1 = await alice1.messages.getMessages(bob.userId!)
-        let stored2 = await alice2.messages.getMessages(bob.userId!)
-        XCTAssertTrue(stored1.contains { $0.content == "swift-2dev-b-reconnect" },
+        let stored1 = try await alice1.client.inbox.peek()
+        let stored2 = try await alice2.client.inbox.peek()
+        XCTAssertTrue(stored1.contains { $0.entryId == "swift-2dev-b-reconnect" },
             "Device 1 must have persisted the message it acked")
-        XCTAssertTrue(stored2.contains { $0.content == "swift-2dev-b-reconnect" },
+        XCTAssertTrue(stored2.contains { $0.entryId == "swift-2dev-b-reconnect" },
             "Device 2 must have persisted the message it acked")
 
         alice1.disconnectWebSocket()

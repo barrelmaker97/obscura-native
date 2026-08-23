@@ -241,6 +241,14 @@ public enum ObscuraSchema {
             try db.execute(sql: "DROP TABLE ttl")
         }
 
+        // v3 removes the native message model. MODEL_SYNC into `inbox_rows` is the app's receive
+        // path, and `model_entries` is its opaque storage. The TEXT, SENT_SYNC and SYNC_BLOB
+        // handlers that wrote this table are gone, so retaining decrypted plaintext rows would
+        // leave unreachable content behind after an upgrade.
+        migrator.registerMigration("v3") { db in
+            try db.execute(sql: "DROP TABLE IF EXISTS messages")
+        }
+
         return migrator
     }
 
@@ -271,7 +279,6 @@ public enum ObscuraSchema {
     /// comment is worth.)
     public static let expectedTables: Set<String> = [
         "friends",
-        "messages",
         "device_identity",
         "own_devices",
         "signal_local_identity",

@@ -29,9 +29,9 @@ When `ObscuraClient.connect()` starts the envelope loop, incoming messages get p
 **`[String: Any]` in APIClient is limited to `decodeJWT`.** API responses use
 typed `Codable` models; only the JWT payload is schemaless.
 
-**Generated protobuf types are `internal` visibility.** This is why `sendRawMessage` takes `Data`.
-Regenerating with `--swift_opt=Visibility=Public` would fix that but exposes the generated
-`Obscura_V1_*` / `Obscura_Client_V1_*` names on the public surface. Better to wrap in domain types.
+**Generated protobuf types are `internal` visibility.** Adversarial wire tests use
+`ObscuraTestClient.sendRaw`; the app-facing surface stays typed and does not expose generated
+`Obscura_V1_*` / `Obscura_Client_V1_*` names.
 
 ## Reference Codebase
 
@@ -45,7 +45,9 @@ The only thing this kit must match in the sibling `kotlin/` package is the **wir
 
 `ObscuraClient`'s public methods are what views call. `ObscuraTestClient` is what tests call. Both call the same underlying methods. If you change a signature on ObscuraClient, update TestClient too. If both call the same code path, the abstraction is correct.
 
-**GRDB ValueObservation is THE reactive layer.** Don't add @Published, Combine, or a second observation mechanism. The `observeAccepted()`, `observeMessages()`, `observeOwnDevices()` streams on the actors are the canonical way views subscribe. Adding alternatives creates drift.
+**GRDB ValueObservation is THE reactive layer.** Don't add @Published, Combine, or a second
+observation mechanism. Friend/device observation stays native; application entries are observed by
+the app after it drains the inbox.
 
 ## Security
 

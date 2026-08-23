@@ -2,7 +2,7 @@ import XCTest
 @testable import ObscuraKit
 
 /// Scenario 5: Multi-Device Linking — against actual server
-/// Bob has 2 devices. Alice sends message. Both Bob devices should receive.
+/// Multi-device account and fan-out coverage.
 final class MultiDeviceLinkingTests: XCTestCase {
 
     // MARK: - 5.1: Second device registers same user
@@ -31,13 +31,14 @@ final class MultiDeviceLinkingTests: XCTestCase {
         // send() requires an accepted friendship; the handshake leaves both connected.
         let (alice, bob) = try await ObscuraTestClient.registerPairAndBecomeFriends()
 
-        // Alice sends message to Bob
-        try await alice.send(to: bob.userId!, "fan-out test")
+        try await alice.client.send(
+            to: [bob.userId!], modelKey: "testModel", entryId: "fan-out",
+            payload: Data("fan-out test".utf8)
+        )
         await rateLimitDelay()
 
-        // Bob's first device receives
         let msg = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg.text, "fan-out test")
+        XCTAssertEqual(msg.type, "MODEL_SYNC")
         XCTAssertEqual(msg.sourceUserId, alice.userId!)
 
         alice.disconnectWebSocket()

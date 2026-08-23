@@ -1,8 +1,7 @@
 import XCTest
 @testable import ObscuraKit
 
-/// Tests for session management and query helpers ported from Kotlin.
-/// Attachment, reset, model sync, and edge case tests live in their own suites.
+/// Tests for session management and attachment crypto.
 final class NewMethodTests: XCTestCase {
 
     // MARK: - hasSession
@@ -68,50 +67,6 @@ final class NewMethodTests: XCTestCase {
         XCTAssertNotNil(device2.deviceId)
         XCTAssertNotEqual(device2.deviceId, alice.deviceId, "Different device IDs")
         XCTAssertTrue(device2.client.hasSession)
-    }
-
-    // MARK: - getMessages (convenience)
-
-    func testGetMessages() async throws {
-        let (alice, bob) = try await ObscuraTestClient.registerPairAndBecomeFriends()
-
-        try await alice.send(to: bob.userId!, "test message 1")
-        _ = try await bob.waitForMessage(timeout: 10)
-
-        let aliceMsgs = await bob.client.getMessages(alice.userId!)
-        XCTAssertGreaterThanOrEqual(aliceMsgs.count, 1)
-        XCTAssertEqual(aliceMsgs.first?.content, "test message 1")
-
-        alice.disconnectWebSocket()
-        bob.disconnectWebSocket()
-    }
-
-    // MARK: - checkBackup
-
-    func testCheckBackup() async throws {
-        let alice = try await ObscuraTestClient.register()
-        await rateLimitDelay()
-
-        let check1 = try await alice.client.checkBackup()
-        XCTAssertFalse(check1.exists, "Should have no backup initially")
-
-        let backupData = Data(repeating: 0x42, count: 1024)
-        _ = try await alice.api.uploadBackup(backupData)
-        await rateLimitDelay()
-
-        let check2 = try await alice.client.checkBackup()
-        XCTAssertTrue(check2.exists, "Should have backup after upload")
-        XCTAssertNotNil(check2.etag)
-    }
-
-    // MARK: - Recovery phrase one-time read
-
-    func testRecoveryPhraseIsOneTimeRead() async throws {
-        let alice = try await ObscuraTestClient.register()
-        let phrase = alice.client.generateRecoveryPhrase()
-        XCTAssertNotNil(phrase)
-        XCTAssertEqual(alice.client.getRecoveryPhrase(), phrase)
-        XCTAssertNil(alice.client.getRecoveryPhrase(), "Second read should return nil")
     }
 
     // MARK: - AttachmentCrypto unit test
