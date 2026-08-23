@@ -43,9 +43,9 @@ import java.util.concurrent.atomic.AtomicLong
 
 class ReceivedMessage internal constructor(
     val type: String,
-    val username: String = "",
-    val sourceUserId: String = "",
-    val senderDeviceId: String? = null,
+    internal val username: String = "",
+    internal val sourceUserId: String = "",
+    internal val senderDeviceId: String? = null,
     /** For MODEL_SYNC messages: the opaque model key; null for non-sync types. */
     val model: String? = null,
     /** Test-only access to the decoded wire message. Applications drain the durable inbox. */

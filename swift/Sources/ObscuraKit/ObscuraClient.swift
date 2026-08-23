@@ -28,10 +28,10 @@ public enum LoginScenario: Sendable {
 
 public struct ReceivedMessage: Sendable {
     public let type: String  // app-facing message kind, e.g. "MODEL_SYNC"; "" if unset
-    public let username: String
-    public let sourceUserId: String
-    public let senderDeviceId: String?
-    public let timestamp: UInt64
+    let username: String
+    let sourceUserId: String
+    let senderDeviceId: String?
+    let timestamp: UInt64
     /// For MODEL_SYNC messages: the opaque model key; nil for non-sync types.
     public let model: String?
     /// Test-only access to the decoded wire message. Applications drain the durable inbox.
