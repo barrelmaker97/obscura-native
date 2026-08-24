@@ -44,7 +44,7 @@ entry store beyond `KIT_API.md` §8.1.
   added later.
 - There is no remote device revocation. Use `api.deleteDevice` from a device you
   still hold.
-- `MODEL_SYNC` has one durable receive write: `inbox.put`. Persistence errors
+- `APP_ENTRY` has one durable receive write: `inbox.put`. Persistence errors
   propagate and skip acknowledgement (`NATIVE_CONTRACT.md` §0.9).
 
 `obscura-client-web` is a throwaway proof of concept, not a porting target or

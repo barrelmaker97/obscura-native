@@ -74,8 +74,8 @@ final class FriendStateMachineTests: XCTestCase {
         XCTAssertEqual(bobAccepted.count, 1)
 
         // getPending should be empty on both sides
-        let alicePending = await alice.friends.getPending()
-        let bobPending = await bob.friends.getPending()
+        let alicePending = await alice.friends.getAll().filter { $0.status == .pendingReceived }
+        let bobPending = await bob.friends.getAll().filter { $0.status == .pendingReceived }
         XCTAssertEqual(alicePending.count, 0)
         XCTAssertEqual(bobPending.count, 0)
 

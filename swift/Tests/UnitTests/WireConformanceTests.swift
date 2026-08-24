@@ -3,12 +3,12 @@ import XCTest
 import SwiftProtobuf
 @testable import ObscuraKit
 
-/// Vector-driven L3 wire conformance, consuming the shared
+/// Vector-driven client-wire conformance, consuming the shared
 /// `../protocol/conformance/wire.json` (NATIVE_CONTRACT §3). Both platforms run the
 /// same file.
 ///
 /// Pins the signal enum <-> app-facing-form mapping via the production
-/// `WireCodec`, and that a `ModelSync` round-trips through the wire by VALUE.
+/// `WireCodec`, and that a `AppEntry` round-trips through the wire by VALUE.
 /// Byte-canonicity is intentionally NOT asserted (SPEC §3.3).
 ///
 /// The `wire`-name → generated-enum-case maps below are a test harness:
@@ -18,7 +18,7 @@ final class WireConformanceTests: XCTestCase {
 
     private let payloadByWire: [String: Obscura_Client_V1_ClientMessage.OneOf_Payload] = [
         "friend_request": .friendRequest(Obscura_Client_V1_FriendRequest()),
-        "model_sync": .modelSync(Obscura_Client_V1_ModelSync()),
+        "app_entry": .appEntry(Obscura_Client_V1_AppEntry()),
         "model_signal": .modelSignal(Obscura_Client_V1_ModelSignal()),
     ]
     private let kindByWire: [String: Obscura_Client_V1_SignalKind] = [
@@ -43,7 +43,7 @@ final class WireConformanceTests: XCTestCase {
         }
 
         for rt in (v["roundTrip"] as? [[String: Any]] ?? []) {
-            try roundTrip(rt["modelSync"] as? [String: Any] ?? [:], name: rt["name"] as? String ?? "?")
+            try roundTrip(rt["appEntry"] as? [String: Any] ?? [:], name: rt["name"] as? String ?? "?")
         }
     }
 
@@ -54,13 +54,13 @@ final class WireConformanceTests: XCTestCase {
         let ts = conformanceUInt64(ms["timestamp"])
         let dataMap = ms["data"] as? [String: Any] ?? [:]
 
-        var proto = Obscura_Client_V1_ModelSync()
+        var proto = Obscura_Client_V1_AppEntry()
         proto.model = model
         proto.id = id
         proto.timestamp = ts
         proto.data = try JSONSerialization.data(withJSONObject: dataMap)
 
-        let decoded = try Obscura_Client_V1_ModelSync(serializedData: proto.serializedData())
+        let decoded = try Obscura_Client_V1_AppEntry(serializedData: proto.serializedData())
 
         XCTAssertEqual(decoded.model, model, "[\(name)] model")
         XCTAssertEqual(decoded.id, id, "[\(name)] id")

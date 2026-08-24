@@ -81,7 +81,7 @@ class PersistenceTests {
             "Bob2 should be CONNECTED after restore + connect")
 
         // Receive the queued message
-        val received = bob2.waitForType("MODEL_SYNC", 20_000)
+        val received = bob2.waitForType("APP_ENTRY", 20_000)
         assertEquals("while you were gone", received.content())
         assertEquals(alice.userId, received.sourceUserId)
         // THE assertion this test is named for: it survived a restart into a durable STORE, not
@@ -93,7 +93,7 @@ class PersistenceTests {
 
         // Prove bidirectional works after restart
         sendAndVerify(bob2, alice, "I'm back")
-        val reply = alice.waitForType("MODEL_SYNC")
+        val reply = alice.waitForType("APP_ENTRY")
         assertEquals("I'm back", reply.content())
         assertEquals(bobUserId, reply.sourceUserId)
         delay(300)

@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test
  * sender's device-scoped token and verified by the Signal session that decrypts.
  *
  * This test asserts that a message Alice receives from Bob is attributed to Bob's REAL DEVICE
- * UUID — both on the wake-up (`ReceivedMessage.senderDeviceId`) and on the durably persisted
+ * UUID — both on the wake-up (`MessageWakeEvent.senderDeviceId`) and on the durably persisted
  * inbox row (`InboxRecord.senderDeviceId`) — and that it is emphatically NOT Bob's user id.
  */
 class AuthorDeviceIdTests {

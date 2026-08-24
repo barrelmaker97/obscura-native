@@ -25,8 +25,8 @@
 --                       per-connection cursor re-sends on reconnect. Correct — losing the message
 --                       would be worse — but it means the same envelope arrives more than once.
 --                       UNIQUE + INSERT OR IGNORE absorbs pending redeliveries.
---   kind                The payload oneof arm, e.g. 'MODEL_SYNC'. Present because the record must
---                       describe all declared arms, not just ModelSync.
+--   kind                The payload oneof arm, e.g. 'APP_ENTRY'. Present because the record must
+--                       describe all declared arms, not just AppEntry.
 --   received_at         Kit clock, not a peer-supplied time.
 --   sender_user_id      Authenticated (SPEC §0.10).
 --   sender_device_id    The address of the Signal session that decrypted this — cryptographic
@@ -35,8 +35,8 @@
 --   sender_display_name Resolved from the LOCAL friend graph keyed on sender_user_id (SPEC §0.5),
 --                       never from the payload. NULL when the sender is not a friend.
 --   model_key           }
---   entry_id            } ModelSync-derived, so NULL for every other kind — including an unknown
---   sent_at             } arm, which has no ModelSync to derive them from (§4.1). sent_at is
+--   entry_id            } AppEntry-derived, so NULL for every other kind — including an unknown
+--   sent_at             } arm, which has no AppEntry to derive them from (§4.1). sent_at is
 --                       } clamped per SPEC §2.4 before it gets here.
 --   payload             Opaque bytes. The kit MUST NOT parse this (SPEC §0.4).
 CREATE TABLE IF NOT EXISTS InboxRow (

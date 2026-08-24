@@ -35,7 +35,7 @@ message ClientMessage {
     SessionReset session_reset = 25;
     DeviceLinkApproval device_link_approval = 30;
     DeviceAnnounce device_announce = 31;
-    ModelSync model_sync = 50;
+    AppEntry app_entry = 50;
     ModelSignal model_signal = 52;
   }
 }
@@ -83,7 +83,7 @@ message DeviceAnnounce {
   bytes recovery_public_key = 5;
 }
 
-message ModelSync {
+message AppEntry {
   reserved 3, 6, 7;
   reserved "op", "signature", "author_device_id";
 

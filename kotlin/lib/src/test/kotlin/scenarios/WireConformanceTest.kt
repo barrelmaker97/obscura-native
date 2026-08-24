@@ -10,11 +10,11 @@ import org.junit.jupiter.api.TestFactory
 import java.io.File
 
 /**
- * Vector-driven L3 wire conformance, consuming the shared
+ * Vector-driven client-wire conformance, consuming the shared
  * `protocol/conformance/wire.json` (see NATIVE_CONTRACT §3). Both platforms run the
  * same file.
  *
- * Pins the signal enum <-> app-facing-form mapping and that a ModelSync
+ * Pins the signal enum <-> app-facing-form mapping and that a AppEntry
  * round-trips through the wire by VALUE.
  * Byte-canonicity is intentionally NOT asserted (SPEC §3.3).
  */
@@ -43,7 +43,7 @@ class WireConformanceTest {
         }
 
         forEach(v.getJSONArray("roundTrip")) { c ->
-            tests.add(dyn(c.getString("name")) { roundTrip(c.getJSONObject("modelSync")) })
+            tests.add(dyn(c.getString("name")) { roundTrip(c.getJSONObject("appEntry")) })
         }
 
         return tests
@@ -56,14 +56,14 @@ class WireConformanceTest {
         val ts = ms.getLong("timestamp")
         val dataMap = ms.getJSONObject("data").toMap()
 
-        val proto = Client.ModelSync.newBuilder()
+        val proto = Client.AppEntry.newBuilder()
             .setModel(model)
             .setId(id)
             .setTimestamp(ts)
             .setData(ByteString.copyFrom(JSONObject(dataMap).toString().toByteArray()))
             .build()
 
-        val decoded = Client.ModelSync.parseFrom(proto.toByteArray())
+        val decoded = Client.AppEntry.parseFrom(proto.toByteArray())
 
         assertEquals(model, decoded.model, "model")
         assertEquals(id, decoded.id, "id")

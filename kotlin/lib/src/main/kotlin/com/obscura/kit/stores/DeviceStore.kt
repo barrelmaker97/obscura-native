@@ -23,9 +23,9 @@ data class OwnDeviceData(
 )
 
 /**
- * DeviceDomain - Confined coroutines. Device identity + own device list.
+ * DeviceStore - Confined coroutines. Device identity + own device list.
  */
-class DeviceDomain internal constructor(private val db: ObscuraDatabase) {
+class DeviceStore internal constructor(private val db: ObscuraDatabase) {
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
 
     suspend fun storeIdentity(identity: DeviceIdentityData) = withContext(dispatcher) {

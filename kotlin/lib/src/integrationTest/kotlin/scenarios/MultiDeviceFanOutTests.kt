@@ -78,12 +78,12 @@ class MultiDeviceFanOutTests {
         sendAndVerify(alice!!, bob1!!, "Hello both Bobs!")
 
         val msg1 = bob1!!.waitForMessage()
-        assertEquals("MODEL_SYNC", msg1.type)
+        assertEquals("APP_ENTRY", msg1.type)
         assertEquals("Hello both Bobs!", msg1.content())
         assertEquals(alice!!.userId, msg1.sourceUserId)
 
         val msg2 = bob2!!.waitForMessage()
-        assertEquals("MODEL_SYNC", msg2.type)
+        assertEquals("APP_ENTRY", msg2.type)
         assertEquals("Hello both Bobs!", msg2.content())
         assertEquals(alice!!.userId, msg2.sourceUserId)
     }
@@ -95,7 +95,7 @@ class MultiDeviceFanOutTests {
         sendAndVerify(bob1!!, alice!!, "From Bob1 to Alice")
 
         val aliceMsg = alice!!.waitForMessage()
-        assertEquals("MODEL_SYNC", aliceMsg.type)
+        assertEquals("APP_ENTRY", aliceMsg.type)
         assertEquals("From Bob1 to Alice", aliceMsg.content())
         assertEquals(bob1!!.userId, aliceMsg.sourceUserId)
 

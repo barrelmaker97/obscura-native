@@ -131,7 +131,7 @@ final class SignalEdgeCaseTests: XCTestCase {
             payload: Data("Carol session intact".utf8)
         )
         let carolMsg = try await carol.waitForMessage(timeout: 10)
-        XCTAssertEqual(carolMsg.type, "MODEL_SYNC")
+        XCTAssertEqual(carolMsg.type, "APP_ENTRY")
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()

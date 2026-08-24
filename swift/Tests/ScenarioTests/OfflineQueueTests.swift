@@ -23,7 +23,7 @@ final class OfflineQueueTests: XCTestCase {
         await rateLimitDelay()
 
         let msg = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg.type, "MODEL_SYNC")
+        XCTAssertEqual(msg.type, "APP_ENTRY")
         XCTAssertEqual(msg.sourceUserId, alice.userId!)
         let rows = try await bob.client.inbox.peek()
         XCTAssertTrue(rows.contains { $0.entryId == "offline-one" })
@@ -58,7 +58,7 @@ final class OfflineQueueTests: XCTestCase {
         let msg1 = try await bob.waitForMessage(timeout: 10)
         let msg2 = try await bob.waitForMessage(timeout: 10)
 
-        XCTAssertEqual([msg1.type, msg2.type], ["MODEL_SYNC", "MODEL_SYNC"])
+        XCTAssertEqual([msg1.type, msg2.type], ["APP_ENTRY", "APP_ENTRY"])
         let ids = try await bob.client.inbox.peek().compactMap(\.entryId).sorted()
         XCTAssertEqual(ids, ["offline-one", "offline-two"])
 
@@ -76,7 +76,7 @@ final class OfflineQueueTests: XCTestCase {
         await rateLimitDelay()
 
         let first = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(first.type, "MODEL_SYNC")
+        XCTAssertEqual(first.type, "APP_ENTRY")
 
         // Bob disconnects and reconnects
         bob.disconnectWebSocket()
@@ -91,7 +91,7 @@ final class OfflineQueueTests: XCTestCase {
         await rateLimitDelay()
 
         let second = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(second.type, "MODEL_SYNC")
+        XCTAssertEqual(second.type, "APP_ENTRY")
         XCTAssertEqual(second.sourceUserId, alice.userId!)
 
         alice.disconnectWebSocket()

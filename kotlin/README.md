@@ -54,8 +54,8 @@ for (row in client.inbox.peek(limit = 50)) {
 }
 client.inbox.consume(processedIds)
 
-// STORE: a blind key/value table for whatever the app made of them. No merge, no
-// CRDT, no TTL, no query API — the app decides who wins.
+// STORE: a blind key/value table for whatever the app made of them. No merge,
+// expiry, or query API — the app decides who wins.
 client.entries.put("pix", StoredEntry(id = entryId, data = json, sentAt = t, authorDeviceId = d))
 client.entries.all("pix")
 
@@ -75,13 +75,12 @@ See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for auth and device linking
 ├──────────────────────────────────────────────────────┤
 │  ObscuraClient facade                                │
 ╞══════════════════════════════════════════════════════╡
-│  Level 3: InboxDomain + EntryStore + friends/devices │
-│           payload bytes are opaque, never parsed     │
+│  Durable boundary: inbox + entries + friends/devices │
+│                    payload bytes stay opaque          │
 ╞══════════════════════════════════════════════════════╡
-│  Level 2: Signal Protocol encrypt/decrypt            │
-│            7 client-to-client arms in client.proto   │
+│  Encrypted messaging: Signal + client.proto          │
 ╞══════════════════════════════════════════════════════╡
-│  Level 1: WebSocket + REST (server is a dumb relay)  │
+│  Transport: WebSocket + REST (blind relay server)    │
 ╞══════════════════════════════════════════════════════╡
 │  SQLDelight (Signal keys, friends, inbox, entries)   │
 └──────────────────────────────────────────────────────┘

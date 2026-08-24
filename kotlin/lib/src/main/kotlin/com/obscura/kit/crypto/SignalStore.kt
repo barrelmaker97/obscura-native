@@ -158,7 +158,7 @@ class SignalStore(
         }
     }
 
-    // MessengerDomain pins every address to `<deviceUuid>.1`, so this kit has no sub-device
+    // Messenger pins every address to `<deviceUuid>.1`, so this kit has no sub-device
     // sessions. libsignal still requires the method.
     override fun getSubDeviceSessions(name: String): List<Int> = emptyList()
 

@@ -38,11 +38,11 @@ class StoryAttachmentTests {
         alice.sendStory(bob, storyId,
             mapOf("content" to "My vacation", "mediaRef" to attId, "mimeType" to "image/jpeg"))
 
-        // Bob receives MODEL_SYNC
-        val msg = bob.waitForType("MODEL_SYNC")
+        // Bob receives APP_ENTRY
+        val msg = bob.waitForType("APP_ENTRY")
         assertEquals(alice.userId, msg.sourceUserId)
 
-        val storyData = JSONObject(String(msg.raw!!.modelSync.data.toByteArray()))
+        val storyData = JSONObject(String(msg.raw!!.appEntry.data.toByteArray()))
         assertEquals("My vacation", storyData.getString("content"))
         assertEquals(attId, storyData.getString("mediaRef"))
         assertEquals("image/jpeg", storyData.getString("mimeType"))
@@ -69,11 +69,11 @@ class StoryAttachmentTests {
         alice.sendStory(bob, "story_text_${System.currentTimeMillis()}",
             mapOf("content" to "Just text, no media"))
 
-        val msg = bob.waitForType("MODEL_SYNC")
+        val msg = bob.waitForType("APP_ENTRY")
         assertEquals(alice.userId, msg.sourceUserId)
-        assertEquals("story", msg.raw!!.modelSync.model)
+        assertEquals("story", msg.raw!!.appEntry.model)
 
-        val d = JSONObject(String(msg.raw!!.modelSync.data.toByteArray()))
+        val d = JSONObject(String(msg.raw!!.appEntry.data.toByteArray()))
         assertEquals("Just text, no media", d.getString("content"))
         assertFalse(d.has("mediaRef"), "Text-only story should not have mediaRef")
 
@@ -97,11 +97,11 @@ class StoryAttachmentTests {
         alice.sendStory(bob, "story_combo_${System.currentTimeMillis()}",
             mapOf("content" to "check out this sunset", "mediaRef" to attId, "contentType" to "image/jpeg"))
 
-        val msg = bob.waitForType("MODEL_SYNC")
+        val msg = bob.waitForType("APP_ENTRY")
         assertEquals(alice.userId, msg.sourceUserId)
 
         // Verify both text and media fields present
-        val data = JSONObject(String(msg.raw!!.modelSync.data.toByteArray()))
+        val data = JSONObject(String(msg.raw!!.appEntry.data.toByteArray()))
         assertEquals("check out this sunset", data.getString("content"), "Text content should match")
         assertEquals(attId, data.getString("mediaRef"), "Media ref should match attachment ID")
         assertEquals("image/jpeg", data.getString("contentType"), "Content type should be image/jpeg")
@@ -131,10 +131,10 @@ class StoryAttachmentTests {
         // Receive all 3 and verify each
         val received = mutableListOf<String>()
         for (i in 1..3) {
-            val msg = bob.waitForType("MODEL_SYNC")
-            assertEquals("story", msg.raw!!.modelSync.model, "Model should be 'story'")
+            val msg = bob.waitForType("APP_ENTRY")
+            assertEquals("story", msg.raw!!.appEntry.model, "Model should be 'story'")
             assertEquals(alice.userId, msg.sourceUserId, "Source should be alice")
-            val d = JSONObject(String(msg.raw!!.modelSync.data.toByteArray()))
+            val d = JSONObject(String(msg.raw!!.appEntry.data.toByteArray()))
             received.add(d.getString("content"))
         }
 

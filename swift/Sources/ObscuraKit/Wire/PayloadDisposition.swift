@@ -5,7 +5,7 @@ import Foundation
 /// Every arm MUST be classified, because **the classification is what makes SPEC §0.9 checkable
 /// rather than aspirational**. "Never ack before persisting" is not a rule the code can follow until
 /// something says, per arm, *what persisting means for this one*.
-enum PayloadClass: Equatable {
+enum PayloadDisposition: Equatable {
     /// Application content. Goes in the inbox; the app drains it. Ack only after the row commits.
     case inboxed
 
@@ -34,10 +34,10 @@ enum PayloadClass: Equatable {
 ///
 /// - Note: Swift's generated oneof has no `PAYLOAD_NOT_SET` case; an unset payload is `nil`, which
 ///   lands in the same `default` and is inboxed for the same reason.
-func classify(_ payload: Obscura_Client_V1_ClientMessage.OneOf_Payload?) -> PayloadClass {
+func payloadDisposition(_ payload: Obscura_Client_V1_ClientMessage.OneOf_Payload?) -> PayloadDisposition {
     switch payload {
     // The app's entire data path.
-    case .modelSync?:
+    case .appEntry?:
         return .inboxed
 
     // Kit-owned state, all with live handlers in `ObscuraClient.routeMessage`.

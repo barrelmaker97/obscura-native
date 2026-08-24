@@ -1,15 +1,15 @@
 import XCTest
 @testable import ObscuraKit
 
-/// Scenario 7: Device Revocation — against actual server.
+/// Device API and two-way messaging scenarios against the actual server.
 ///
 /// Remote device revocation is not implemented. These scenarios cover the
 /// supported multi-device messaging and local device-state operations.
-final class DeviceRevocationTests: XCTestCase {
+final class DeviceApiTests: XCTestCase {
 
     // MARK: - 7.1: Two-way entry exchange
 
-    func testScenario7_1_TwoWayEntryExchange() async throws {
+    func testTwoWayEntryExchange() async throws {
         let (alice, bob) = try await ObscuraTestClient.registerPairAndBecomeFriends()
 
         try await alice.client.send(
@@ -17,14 +17,14 @@ final class DeviceRevocationTests: XCTestCase {
             payload: Data("hi bob".utf8)
         )
         let bobWake = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(bobWake.type, "MODEL_SYNC")
+        XCTAssertEqual(bobWake.type, "APP_ENTRY")
 
         try await bob.client.send(
             to: [alice.userId!], modelKey: "testModel", entryId: "bob-to-alice",
             payload: Data("hi alice".utf8)
         )
         let aliceWake = try await alice.waitForMessage(timeout: 10)
-        XCTAssertEqual(aliceWake.type, "MODEL_SYNC")
+        XCTAssertEqual(aliceWake.type, "APP_ENTRY")
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()
@@ -32,7 +32,7 @@ final class DeviceRevocationTests: XCTestCase {
 
     // MARK: - 7.2: Delete device via server API
 
-    func testScenario7_2_DeleteDeviceViaAPI() async throws {
+    func testListRegisteredDevices() async throws {
         let bob = try await ObscuraTestClient.register()
         await rateLimitDelay()
 

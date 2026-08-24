@@ -110,8 +110,8 @@ final class TwoDeviceSendTests: XCTestCase {
         )
         let a1 = try await alice1.waitForMessage(timeout: 15)
         let a2 = try await alice2.waitForMessage(timeout: 15)
-        XCTAssertEqual(a1.type, "MODEL_SYNC", "Alice device 1 must decrypt the fresh send")
-        XCTAssertEqual(a2.type, "MODEL_SYNC", "Alice device 2 must decrypt the fresh send")
+        XCTAssertEqual(a1.type, "APP_ENTRY", "Alice device 1 must decrypt the fresh send")
+        XCTAssertEqual(a2.type, "APP_ENTRY", "Alice device 2 must decrypt the fresh send")
 
         // (b) Reconnect the gateway, then send again. send() refreshes prekey bundles,
         // so this does not exercise a reconstructed client's persisted device map.
@@ -126,9 +126,9 @@ final class TwoDeviceSendTests: XCTestCase {
         )
         let b1 = try await alice1.waitForMessage(timeout: 15)
         let b2 = try await alice2.waitForMessage(timeout: 15)
-        XCTAssertEqual(b1.type, "MODEL_SYNC",
+        XCTAssertEqual(b1.type, "APP_ENTRY",
             "Alice device 1 must decrypt after the sender reconnected")
-        XCTAssertEqual(b2.type, "MODEL_SYNC",
+        XCTAssertEqual(b2.type, "APP_ENTRY",
             "Alice device 2 must decrypt after the sender reconnected")
 
         let stored1 = try await alice1.client.inbox.peek()

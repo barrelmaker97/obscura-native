@@ -3,7 +3,7 @@ package scenarios
 import com.obscura.kit.ObscuraClient
 import com.obscura.kit.ObscuraConfig
 import com.obscura.kit.AuthState
-import com.obscura.kit.ReceivedMessage
+import com.obscura.kit.MessageWakeEvent
 import com.obscura.kit.stores.FriendStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
@@ -13,12 +13,12 @@ import org.junit.jupiter.api.Assertions.*
 /**
  * The application content of a received entry.
  *
- * MODEL_SYNC data is application-owned opaque payload bytes; reading `content` out of it is
+ * APP_ENTRY data is application-owned opaque payload bytes; reading `content` out of it is
  * something only a test (standing in for the app) may do, never the kit.
  */
-fun ReceivedMessage.content(): String =
+fun MessageWakeEvent.content(): String =
     runCatching {
-        org.json.JSONObject(String(raw!!.modelSync.data.toByteArray())).optString("content", "")
+        org.json.JSONObject(String(raw!!.appEntry.data.toByteArray())).optString("content", "")
     }.getOrDefault("")
 
 /**
@@ -29,7 +29,7 @@ fun ReceivedMessage.content(): String =
  *
  * Skipping by kind is more honest than draining: the test says which message it is waiting for.
  */
-suspend fun ObscuraClient.waitForType(type: String, timeoutMs: Long = 15_000): ReceivedMessage =
+suspend fun ObscuraClient.waitForType(type: String, timeoutMs: Long = 15_000): MessageWakeEvent =
     withTimeout(timeoutMs) {
         while (true) {
             val msg = incomingMessages.receive()
@@ -38,7 +38,7 @@ suspend fun ObscuraClient.waitForType(type: String, timeoutMs: Long = 15_000): R
         @Suppress("UNREACHABLE_CODE") error("unreachable")
     }
 
-suspend fun ObscuraClient.waitForMessage(timeoutMs: Long = 15_000): ReceivedMessage =
+suspend fun ObscuraClient.waitForMessage(timeoutMs: Long = 15_000): MessageWakeEvent =
     withTimeout(timeoutMs) { incomingMessages.receive() }
 
 // Override with OBSCURA_TEST_API to point at a locally containerized
@@ -101,7 +101,9 @@ suspend fun becomeFriends(a: ObscuraClient, b: ObscuraClient) {
 
     b.waitForMessage() // FRIEND_REQUEST
     delay(300)
-    assertTrue(b.pendingRequests.value.any { it.userId == a.userId },
+    assertTrue(b.friendList.value.any {
+        it.userId == a.userId && it.status == FriendStatus.PENDING_RECEIVED
+    },
         "Receiver should see pending request from sender")
 
     b.acceptFriend(a.userId!!, a.username!!)

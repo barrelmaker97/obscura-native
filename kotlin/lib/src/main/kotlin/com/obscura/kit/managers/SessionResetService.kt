@@ -3,7 +3,7 @@ package com.obscura.kit.managers
 import obscura.client.v1.Client.ClientMessage
 
 /** Signal session resets. */
-internal class ClientSyncManager(
+internal class SessionResetService(
     private val ctx: ClientContext
 ) {
     private val signalStore get() = ctx.signalStore

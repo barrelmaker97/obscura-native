@@ -1,6 +1,6 @@
 package com.obscura.kit.managers
 
-import com.obscura.kit.stores.MessengerDomain
+import com.obscura.kit.messaging.Messenger
 import obscura.client.v1.Client.ClientMessage
 
 /**
@@ -8,7 +8,7 @@ import obscura.client.v1.Client.ClientMessage
  * Used by every manager that needs to send encrypted messages.
  */
 internal class MessageSender(
-    private val messenger: MessengerDomain,
+    private val messenger: Messenger,
     private val authManager: AuthManager
 ) {
     suspend fun sendToAllDevices(targetUserId: String, msg: ClientMessage) {

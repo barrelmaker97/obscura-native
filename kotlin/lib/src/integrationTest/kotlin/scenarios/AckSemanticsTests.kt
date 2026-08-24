@@ -75,8 +75,8 @@ class AckSemanticsTests {
         }
 
         val plaintext = ClientMessage.newBuilder()
-            .setModelSync(
-                obscura.client.v1.Client.ModelSync.newBuilder()
+            .setAppEntry(
+                obscura.client.v1.Client.AppEntry.newBuilder()
                     .setModel("corrupt")
                     .setId("corrupt-${UUID.randomUUID()}")
                     .setTimestamp(System.currentTimeMillis())

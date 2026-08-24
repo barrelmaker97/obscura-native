@@ -10,15 +10,15 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * DeviceDomain handles the local device identity row + the own-devices
+ * DeviceStore handles the local device identity row + the own-devices
  * list. Wrong behavior here means the wrong device gets credit for
  * messages or a user's device list reads stale. Tests use an in-memory
  * sqldelight DB (the same driver that ObscuraClient itself uses in
  * test mode), no mocks.
  */
-class DeviceDomainTest {
+class DeviceStoreTest {
 
-    private fun newDomain() = DeviceDomain(newInMemoryDatabase())
+    private fun newDomain() = DeviceStore(newInMemoryDatabase())
 
     private fun sampleIdentity(deviceId: String = "device-1") = DeviceIdentityData(
         deviceId = deviceId,

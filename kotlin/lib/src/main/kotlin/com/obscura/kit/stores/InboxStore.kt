@@ -8,8 +8,8 @@ import kotlinx.coroutines.withContext
 /**
  * One drained inbox row, as the app sees it (`KIT_API.md` §3.1).
  *
- * `payload` is opaque bytes the kit never parsed. The ModelSync-derived fields are null for every
- * other kind, including an unknown arm — there is no ModelSync to derive them from.
+ * `payload` is opaque bytes the kit never parsed. The AppEntry-derived fields are null for every
+ * other kind, including an unknown arm — there is no AppEntry to derive them from.
  */
 data class InboxRecord(
     val id: Long,
@@ -65,7 +65,7 @@ data class InboxRecord(
  * server, which receive it through the ordinary envelope path. The originating device is never
  * echoed to and writes its own store directly.
  */
-class InboxDomain internal constructor(private val db: ObscuraDatabase) {
+class InboxStore internal constructor(private val db: ObscuraDatabase) {
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
 
     /**

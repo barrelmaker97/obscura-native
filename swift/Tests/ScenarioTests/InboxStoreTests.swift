@@ -4,7 +4,7 @@ import GRDB
 
 /// The durable inbox (`KIT_API.md` §3).
 ///
-/// Mirrors `ObscuraKit-Kotlin`'s `InboxDomainTest` so both kits enforce the
+/// Mirrors `ObscuraKit-Kotlin`'s `InboxStoreTest` so both kits enforce the
 /// same durable-inbox contract.
 ///
 /// These check the properties the design is *for*, not the SQL. Each corresponds to a normative rule,
@@ -18,7 +18,7 @@ final class InboxStoreTests: XCTestCase {
 
     private func record(
         _ envelopeId: String,
-        kind: String = "MODEL_SYNC",
+        kind: String = "APP_ENTRY",
         payload: Data = Data("{}".utf8),
         modelKey: String? = "directMessage"
     ) -> InboxRecord {
@@ -182,7 +182,7 @@ final class InboxStoreTests: XCTestCase {
     /// hard crash, and `peek` is on the drain path, so it would take the app down every time it
     /// tried to read its own inbox — unrecoverable without deleting the database.
     ///
-    /// It is reachable because `ModelSync.timestamp` is proto3 `uint64` and Kotlin's protobuf
+    /// It is reachable because `AppEntry.timestamp` is proto3 `uint64` and Kotlin's protobuf
     /// surfaces that as a signed `Long`: a peer kit writes a negative and this kit reads it.
     func testANegativeSentAtSaturatesRatherThanTrappingTheDrain() async throws {
         let db = try DatabaseQueue()
@@ -268,7 +268,7 @@ final class InboxStoreTests: XCTestCase {
         let row = try XCTUnwrap(rows.first)
 
         XCTAssertEqual(row.envelopeId, "env_1")
-        XCTAssertEqual(row.kind, "MODEL_SYNC")
+        XCTAssertEqual(row.kind, "APP_ENTRY")
         XCTAssertEqual(row.senderUserId, "user_peer")
         XCTAssertEqual(row.senderDeviceId, "device_peer")
         XCTAssertEqual(row.senderDisplayName, "alice")
@@ -277,9 +277,9 @@ final class InboxStoreTests: XCTestCase {
         XCTAssertEqual(row.payload, payload)
     }
 
-    /// An unknown arm has no ModelSync to derive from, so those columns are null (§4.1). The row
+    /// An unknown arm has no AppEntry to derive from, so those columns are null (§4.1). The row
     /// still exists, which is the point — the message is preserved rather than destroyed.
-    func testAnUnknownArmIsStoredWithNilModelSyncFields() async throws {
+    func testAnUnknownArmIsStoredWithNilAppEntryFields() async throws {
         let inbox = try makeInbox()
         try await inbox.put(
             InboxRecord(

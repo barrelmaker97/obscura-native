@@ -8,7 +8,7 @@ final class ObservationTests: XCTestCase {
     // MARK: - Friends observation
 
     func testFriendsObservationEmitsOnAdd() async throws {
-        let actor = try FriendActor()
+        let actor = try FriendStore()
 
         var emitted: [[Friend]] = []
         let expectation = XCTestExpectation(description: "stream emits")
@@ -40,7 +40,7 @@ final class ObservationTests: XCTestCase {
     }
 
     func testFriendsObservationEmitsOnStatusChange() async throws {
-        let actor = try FriendActor()
+        let actor = try FriendStore()
 
         // Add a pending friend first
         try await actor.add("bob-id", "bob", status: .pendingReceived)
@@ -73,7 +73,7 @@ final class ObservationTests: XCTestCase {
     // MARK: - Devices observation
 
     func testDevicesObservationEmitsOnAdd() async throws {
-        let actor = try DeviceActor()
+        let actor = try DeviceStore()
 
         var emitted: [[OwnDevice]] = []
         let expectation = XCTestExpectation(description: "devices emit")

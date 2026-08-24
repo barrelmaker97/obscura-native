@@ -52,7 +52,7 @@ final class SchemaTests: XCTestCase {
 
     func testConstructingOneStoreCreatesTheWholeSchema() throws {
         let db = try DatabaseQueue()
-        _ = try FriendActor(db: db)
+        _ = try FriendStore(db: db)
         XCTAssertEqual(try tableNames(in: db), ObscuraSchema.expectedTables)
     }
 

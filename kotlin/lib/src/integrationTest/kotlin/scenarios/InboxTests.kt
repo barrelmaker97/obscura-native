@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Test
 /**
  * The durable inbox, end to end against a real server (`KIT_API.md` §3).
  *
- * `InboxDomainTest` covers the store's rules in isolation. This file covers the part that cannot be
- * faked: that a real MODEL_SYNC, sent by a real peer over a real Signal session and delivered by the
+ * `InboxStoreTest` covers the store's rules in isolation. This file covers the part that cannot be
+ * faked: that a real APP_ENTRY, sent by a real peer over a real Signal session and delivered by the
  * real gateway, arrives as an inbox row with the right authenticated identity on it.
  *
  * The inbox is the durable receive path: it commits before acknowledgement and the app drains it.
@@ -30,7 +30,7 @@ class InboxTests {
         )
 
     @Test
-    fun `a received MODEL_SYNC lands in the inbox with authenticated identity`() = runBlocking {
+    fun `a received APP_ENTRY lands in the inbox with authenticated identity`() = runBlocking {
         assumeTrue(checkServer())
 
         val alice = registerAndConnect("inbox_a")
@@ -43,10 +43,10 @@ class InboxTests {
         delay(3000)
 
         val rows = bob.inbox.peek()
-        assertEquals(1, rows.size, "exactly one inbox row for one MODEL_SYNC")
+        assertEquals(1, rows.size, "exactly one inbox row for one APP_ENTRY")
         val row = rows[0]
 
-        assertEquals("MODEL_SYNC", row.kind)
+        assertEquals("APP_ENTRY", row.kind)
         assertEquals("story", row.modelKey, "modelKey is carried opaquely so the app can merge")
         // Identity comes from the envelope and the Signal session, never from the payload
         // (SPEC §0.5, §0.10). This is the assertion a unit test cannot make honestly.
@@ -69,7 +69,7 @@ class InboxTests {
      * Without the clamp a peer sets `sentAt` far in the future and wins every REPLACE conflict
      * forever: the tie-break can only order writes it can compare honestly.
      *
-     * `Long.MAX_VALUE` also exercises the subtle half. `ModelSync.timestamp` is proto3 `uint64`,
+     * `Long.MAX_VALUE` also exercises the subtle half. `AppEntry.timestamp` is proto3 `uint64`,
      * which protobuf-java surfaces as a SIGNED Long — so a large enough value arrives NEGATIVE and
      * sails under a naive `minOf` cap. Both ends are clamped.
      */
@@ -101,9 +101,8 @@ class InboxTests {
     }
 
     /**
-     * **Offline delivery, relocated from `ORMMessageTests`** when the ORM's receive path was
-     * disconnected. The behaviour is the whole point of a durable inbox: the server holds what it
-     * could not deliver, and hands it over on reconnect.
+     * Offline delivery is the whole point of a durable inbox: the server holds what it could not
+     * deliver and hands it over on reconnect.
      *
      * This is also the case the drain's cold-start trigger exists for — a message that arrives while
      * the app is not listening must still reach the app.
@@ -177,7 +176,7 @@ class InboxTests {
      * **No end-to-end redelivery test:** producing a genuine redelivery requires
      * suppressing the first ACK, and `GatewayConnection` has no such seam.
      * The deduplication property is covered at the storage boundary:
-     * `InboxDomainTest.a redelivered envelope does not create a second row` calls `put` twice with
+     * `InboxStoreTest.a redelivered envelope does not create a second row` calls `put` twice with
      * one envelope id and asserts one row.
      *
      * Add the seam and test together if end-to-end coverage is required.

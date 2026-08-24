@@ -6,7 +6,7 @@ type: feedback
 
 `SessionCipher.encrypt()` will throw if no Signal session exists at the target address. Sessions are NOT created automatically.
 
-**The pattern (in MessengerDomain.queueMessage):**
+**The pattern (in Messenger.queueMessage):**
 ```kotlin
 private suspend fun ensureSession(targetUserId: String, registrationId: Int) {
     val address = SignalProtocolAddress(targetUserId, registrationId)

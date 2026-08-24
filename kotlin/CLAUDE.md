@@ -44,25 +44,23 @@ schema parser.** If a task seems to require one, re-check the boundary in
   public facade against a configured server. JUnit 5 ignores non-void `@Test`
   methods, so a body ending in `assertThrows(...)` needs a trailing `Unit`.
 
-## Three-Level Architecture
+## Runtime boundaries
 
-1. **Level 1 (Server Protocol):** `network/APIClient.kt`, `network/GatewayConnection.kt` — REST + WebSocket transport. Server is a dumb relay.
-2. **Level 2 (Client Protocol):** `stores/MessengerDomain.kt`, `crypto/SignalStore.kt` — Signal encrypt/decrypt and the seven live client-to-client payload arms. Server never sees contents.
-3. **Level 3 (app data):** `stores/InboxDomain.kt` + `stores/EntryStore.kt` — a durable inbox of
-   decrypted rows and a blind key/value store of application entries, both keyed on an **opaque**
-   model name. Payload bytes are never parsed. `wire/WireCodec.kt` owns the wire↔app-facing
-   mappings pinned by `../protocol/conformance/wire.json`.
+- **Transport:** `network/APIClient.kt`, `network/GatewayConnection.kt` — REST + WebSocket; the
+  server is a blind relay.
+- **Encrypted messaging:** `messaging/Messenger.kt`, `crypto/SignalStore.kt`, and the seven live
+  client-to-client payload arms.
+- **Durable app boundary:** `stores/InboxStore.kt` + `stores/EntryStore.kt` — an inbox of decrypted
+  opaque bytes and a blind application entry store.
 
-`ObscuraClient.kt` is the facade that wires all three levels together and exposes StateFlows for Compose views.
+`ObscuraClient.kt` is the facade that wires these boundaries together.
 
 ## Key Patterns
 
 - **Confined coroutines:** Each domain class uses `Dispatchers.Default.limitedParallelism(1)` — Kotlin equivalent of Swift Actors
-- **Auto-session building:** `MessengerDomain.queueMessage()` fetches prekey bundles and builds Signal sessions on demand
-- **StateFlow for UI:** `connectionState`, `authState`, `friendList`, and
-  `pendingRequests`. The current Android bridge observes
-  `connectionState`, `authState`, `friendList`, and `incomingMessages`; it reads
-  pending requests on demand. `typedEvents` is an optional aggregate stream.
+- **Auto-session building:** `Messenger.queueMessage()` fetches prekey bundles and builds Signal sessions on demand
+- **StateFlow for UI:** `connectionState`, `authState`, and `friendList`. Pending requests are
+  `friendList` rows with status `pending_received`.
 - **Inbound wake stream:** `incomingMessages` has exactly one app consumer; push draining observes
   receive activity without consuming it.
 

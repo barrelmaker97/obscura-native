@@ -10,12 +10,12 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 
 /**
- * ECS Signal Tests — typing indicators, read receipts.
+ * Typing signal tests — typing indicators, read receipts.
  *
  * Unit tests prove the SignalManager works in isolation.
  * Integration tests prove signals survive Signal Protocol encryption over the wire.
  */
-class SignalECSTests {
+class TypingSignalTests {
 
     // ─── Unit: SignalManager in isolation ──────────────────────────
 
@@ -161,7 +161,7 @@ class SignalECSTests {
                 if (msg.type == "MODEL_SIGNAL") {
                     // Server delivered the stale signal — that's fine, it's ephemeral.
                     // The SignalManager receives it but it expires in 3s. No DB persistence.
-                } else if (msg.type == "MODEL_SYNC") {
+                } else if (msg.type == "APP_ENTRY") {
                     realMessageReceived = true
                 }
             } catch (_: Exception) {}

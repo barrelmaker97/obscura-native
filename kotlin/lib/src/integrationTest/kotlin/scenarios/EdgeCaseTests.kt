@@ -57,7 +57,7 @@ class EdgeCaseTests {
     }
 
     @Test @Order(4)
-    fun `EC-4 - Profile data syncs via MODEL_SYNC with full lifecycle`() = runBlocking {
+    fun `EC-4 - Profile data syncs via APP_ENTRY with full lifecycle`() = runBlocking {
         assumeTrue(checkServer())
 
         val alice = registerAndConnect("ecpa")
@@ -67,7 +67,7 @@ class EdgeCaseTests {
 
         becomeFriends(alice, bob)
 
-        // Alice sends profile MODEL_SYNC
+        // Alice sends profile APP_ENTRY
         alice.send(
             recipientUserIds = listOf(bob.userId!!),
             modelKey = "profile",
@@ -78,11 +78,11 @@ class EdgeCaseTests {
         )
 
         // Bob receives and verifies
-        val msg = bob.waitForType("MODEL_SYNC")
+        val msg = bob.waitForType("APP_ENTRY")
         assertEquals(alice.userId, msg.sourceUserId, "Source should be alice")
-        assertEquals("profile", msg.raw!!.modelSync.model, "Model should be 'profile'")
+        assertEquals("profile", msg.raw!!.appEntry.model, "Model should be 'profile'")
 
-        val data = JSONObject(String(msg.raw!!.modelSync.data.toByteArray()))
+        val data = JSONObject(String(msg.raw!!.appEntry.data.toByteArray()))
         assertEquals("Alice Display", data.getString("displayName"), "Display name should match")
         assertEquals("att-avatar-123", data.getString("avatarUrl"), "Avatar URL should match")
 

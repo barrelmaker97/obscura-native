@@ -4,7 +4,7 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.obscura.kit.db.ObscuraDatabase
 
 /**
- * Raw in-memory ObscuraDatabase for the store tests (DeviceDomain, FriendDomain, InboxDomain,
+ * Raw in-memory ObscuraDatabase for the store tests (DeviceStore, FriendStore, InboxStore,
  * EntryStore).
  * Unlike the integration suite, this never touches the network. Each test gets its own DB instance
  * so there is no shared-state leakage. Construction takes about 30ms (schema migration dominates),

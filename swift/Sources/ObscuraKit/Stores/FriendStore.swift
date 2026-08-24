@@ -33,7 +33,7 @@ public struct Friend: Codable, Sendable, Equatable {
     }
 }
 
-public actor FriendActor {
+public actor FriendStore {
     private let db: DatabaseQueue
 
     /// Exposed for GRDB ValueObservation (read-only observation from any isolation)
@@ -120,13 +120,6 @@ public actor FriendActor {
     public func getAccepted() async -> [Friend] {
         (try? await db.read { db -> [Friend] in
             try Row.fetchAll(db, sql: "SELECT * FROM friends WHERE status = ?", arguments: [FriendStatus.accepted.rawValue])
-                .compactMap { Self.rowToFriend($0) }
-        }) ?? []
-    }
-
-    public func getPending() async -> [Friend] {
-        (try? await db.read { db -> [Friend] in
-            try Row.fetchAll(db, sql: "SELECT * FROM friends WHERE status = ?", arguments: [FriendStatus.pendingReceived.rawValue])
                 .compactMap { Self.rowToFriend($0) }
         }) ?? []
     }

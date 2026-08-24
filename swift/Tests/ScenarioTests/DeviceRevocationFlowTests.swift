@@ -46,7 +46,7 @@ final class DeviceRevocationFlowTests: XCTestCase {
     ///
     /// This test would have caught the original bug: reaching the assertions at all means no trap.
     func testAnAnnounceTimestampAboveInt64MaxDoesNotCrashTheStore() async throws {
-        let friends = try FriendActor()
+        let friends = try FriendStore()
         try await friends.add("bob-id", "bob", status: .accepted)
 
         // 0x8000_0000_0000_0000 — one past Int64.max, the exact value that trapped.
@@ -77,7 +77,7 @@ final class DeviceRevocationFlowTests: XCTestCase {
     /// version took two `Date()` readings and required a millisecond to elapse between them — it
     /// passed on one CI run and failed on the next, which is how it got here.
     func testALaterAnnounceStillWinsAfterAClampedOne() async throws {
-        let friends = try FriendActor()
+        let friends = try FriendStore()
         try await friends.add("bob-id", "bob", status: .accepted)
 
         let clamped = UInt64(Date().timeIntervalSince1970 * 1000) + 60_000
@@ -101,7 +101,7 @@ final class DeviceRevocationFlowTests: XCTestCase {
     /// was read by `routeMessage` and written by nothing, so verification was dead by construction
     /// and every announce from every sender was accepted unverified.
     func testTheFirstAnnounceCarryingARecoveryKeyPinsIt() async throws {
-        let friends = try FriendActor()
+        let friends = try FriendStore()
         try await friends.add("bob-id", "bob", status: .accepted)
         // Hoisted: XCTAssert* take autoclosures, which cannot contain an `await`.
         let before = await friends.getFriend("bob-id")
@@ -117,7 +117,7 @@ final class DeviceRevocationFlowTests: XCTestCase {
     /// A pin must survive `add` being called again — INSERT OR REPLACE deletes the row, so omitting
     /// the column would silently downgrade a pinned peer back to unverified.
     func testReAddingAFriendDoesNotDropThePinnedRecoveryKey() async throws {
-        let friends = try FriendActor()
+        let friends = try FriendStore()
         try await friends.add("bob-id", "bob", status: .pendingSent)
         let key = RecoveryKeys.getPublicKey(from: RecoveryKeys.generatePhrase())
         try await friends.pinRecoveryPublicKey("bob-id", key)

@@ -11,7 +11,7 @@ fan out to every device of each caller-named user
     + own other devices
     - this sending device
     ↓
-MessengerActor establishes device-UUID Signal sessions and encrypts
+Messenger establishes device-UUID Signal sessions and encrypts
     ↓
 POST /v1/messages
 ```
@@ -29,7 +29,7 @@ validate sender_id + sender_device_id
 decrypt through the sender device UUID's Signal session
     ↓
 classify the declared client.proto arm
-    ├─ MODEL_SYNC / unknown → inbox.put
+    ├─ APP_ENTRY / unknown → inbox.put
     ├─ friend/device/session arms              → kit-owned handler
     ├─ MODEL_SIGNAL                            → in-memory signal store
     └─ declared unimplemented arms             → diagnose and drop

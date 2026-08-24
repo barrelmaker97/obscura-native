@@ -171,12 +171,12 @@ nonisolated struct Obscura_Client_V1_ClientMessage: Sendable {
     set {payload = .deviceAnnounce(newValue)}
   }
 
-  var modelSync: Obscura_Client_V1_ModelSync {
+  var appEntry: Obscura_Client_V1_AppEntry {
     get {
-      if case .modelSync(let v)? = payload {return v}
-      return Obscura_Client_V1_ModelSync()
+      if case .appEntry(let v)? = payload {return v}
+      return Obscura_Client_V1_AppEntry()
     }
-    set {payload = .modelSync(newValue)}
+    set {payload = .appEntry(newValue)}
   }
 
   var modelSignal: Obscura_Client_V1_ModelSignal {
@@ -195,7 +195,7 @@ nonisolated struct Obscura_Client_V1_ClientMessage: Sendable {
     case sessionReset(Obscura_Client_V1_SessionReset)
     case deviceLinkApproval(Obscura_Client_V1_DeviceLinkApproval)
     case deviceAnnounce(Obscura_Client_V1_DeviceAnnounce)
-    case modelSync(Obscura_Client_V1_ModelSync)
+    case appEntry(Obscura_Client_V1_AppEntry)
     case modelSignal(Obscura_Client_V1_ModelSignal)
 
   }
@@ -304,7 +304,7 @@ nonisolated struct Obscura_Client_V1_DeviceAnnounce: Sendable {
   init() {}
 }
 
-nonisolated struct Obscura_Client_V1_ModelSync: Sendable {
+nonisolated struct Obscura_Client_V1_AppEntry: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -387,7 +387,7 @@ nonisolated extension Obscura_Client_V1_EncryptedMessage.TypeEnum: SwiftProtobuf
 
 nonisolated extension Obscura_Client_V1_ClientMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ClientMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{2}timestamp\0\u{4}\u{12}friend_request\0\u{3}friend_response\0\u{4}\u{4}session_reset\0\u{4}\u{5}device_link_approval\0\u{3}device_announce\0\u{4}\u{13}model_sync\0\u{4}\u{2}model_signal\0\u{b}type\0\u{b}text\0\u{b}device_recovery_announce\0\u{b}history_chunk\0\u{b}settings_sync\0\u{b}read_sync\0\u{b}sync_blob\0\u{b}sent_sync\0\u{b}content_reference\0\u{b}chunked_content_reference\0\u{b}sync_request\0\u{b}friend_sync\0\u{c}\u{1}\u{1}\u{c}\u{a}\u{1}\u{c}\u{b}\u{1}\u{c}\u{c}\u{1}\u{c}\u{f}\u{1}\u{c}\u{10}\u{1}\u{c} \u{1}\u{c}(\u{8}\u{c}3\u{1}")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{2}timestamp\0\u{4}\u{12}friend_request\0\u{3}friend_response\0\u{4}\u{4}session_reset\0\u{4}\u{5}device_link_approval\0\u{3}device_announce\0\u{4}\u{13}app_entry\0\u{4}\u{2}model_signal\0\u{b}type\0\u{b}text\0\u{b}device_recovery_announce\0\u{b}history_chunk\0\u{b}settings_sync\0\u{b}read_sync\0\u{b}sync_blob\0\u{b}sent_sync\0\u{b}content_reference\0\u{b}chunked_content_reference\0\u{b}sync_request\0\u{b}friend_sync\0\u{c}\u{1}\u{1}\u{c}\u{a}\u{1}\u{c}\u{b}\u{1}\u{c}\u{c}\u{1}\u{c}\u{f}\u{1}\u{c}\u{10}\u{1}\u{c} \u{1}\u{c}(\u{8}\u{c}3\u{1}")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -462,16 +462,16 @@ nonisolated extension Obscura_Client_V1_ClientMessage: SwiftProtobuf.Message, Sw
         }
       }()
       case 50: try {
-        var v: Obscura_Client_V1_ModelSync?
+        var v: Obscura_Client_V1_AppEntry?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .modelSync(let m) = current {v = m}
+          if case .appEntry(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .modelSync(v)
+          self.payload = .appEntry(v)
         }
       }()
       case 52: try {
@@ -521,8 +521,8 @@ nonisolated extension Obscura_Client_V1_ClientMessage: SwiftProtobuf.Message, Sw
       guard case .deviceAnnounce(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 31)
     }()
-    case .modelSync?: try {
-      guard case .modelSync(let v)? = self.payload else { preconditionFailure() }
+    case .appEntry?: try {
+      guard case .appEntry(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 50)
     }()
     case .modelSignal?: try {
@@ -787,8 +787,8 @@ nonisolated extension Obscura_Client_V1_DeviceAnnounce: SwiftProtobuf.Message, S
   }
 }
 
-nonisolated extension Obscura_Client_V1_ModelSync: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".ModelSync"
+nonisolated extension Obscura_Client_V1_AppEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".AppEntry"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}model\0\u{1}id\0\u{2}\u{2}timestamp\0\u{1}data\0\u{b}op\0\u{b}signature\0\u{b}author_device_id\0\u{c}\u{3}\u{1}\u{c}\u{6}\u{1}\u{c}\u{7}\u{1}")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -822,7 +822,7 @@ nonisolated extension Obscura_Client_V1_ModelSync: SwiftProtobuf.Message, SwiftP
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Obscura_Client_V1_ModelSync, rhs: Obscura_Client_V1_ModelSync) -> Bool {
+  static func ==(lhs: Obscura_Client_V1_AppEntry, rhs: Obscura_Client_V1_AppEntry) -> Bool {
     if lhs.model != rhs.model {return false}
     if lhs.id != rhs.id {return false}
     if lhs.timestamp != rhs.timestamp {return false}

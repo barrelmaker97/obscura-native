@@ -74,7 +74,7 @@ class TwoDeviceSendTests {
      * What the sender believes about Alice's devices, and which Signal sessions it actually holds.
      *
      * Prints the device-UUID address used by
-     * `MessengerDomain.addressFor(deviceUuid)`.
+     * `Messenger.addressFor(deviceUuid)`.
      */
     private fun senderState(tag: String) {
         val b = bob!!
@@ -119,7 +119,7 @@ class TwoDeviceSendTests {
 
         val onD1 = runCatching { alice1!!.waitForMessage(15_000) }
         val onD2 = runCatching { alice2!!.waitForMessage(15_000) }
-        // Content lives in the opaque MODEL_SYNC payload.
+        // Content lives in the opaque APP_ENTRY payload.
         val d1ok = onD1.getOrNull()?.content() == text
         val d2ok = onD2.getOrNull()?.content() == text
 

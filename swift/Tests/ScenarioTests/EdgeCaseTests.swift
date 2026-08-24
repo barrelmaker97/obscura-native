@@ -2,7 +2,7 @@ import XCTest
 @testable import ObscuraKit
 
 /// Matches Kotlin's EdgeCaseTests.kt
-/// Edge cases: attachment sizes and profile MODEL_SYNC.
+/// Edge cases: attachment sizes and profile APP_ENTRY.
 final class EdgeCaseTests: XCTestCase {
 
     func testSmallAttachmentUploadSucceeds() async throws {
@@ -28,7 +28,7 @@ final class EdgeCaseTests: XCTestCase {
         XCTAssertEqual(downloaded.count, medium.count)
     }
 
-    func testProfileDataSyncsViaModelSync() async throws {
+    func testProfileDataSyncsViaAppEntry() async throws {
         let (alice, bob) = try await ObscuraTestClient.registerPairAndBecomeFriends()
 
         let profileData = try JSONSerialization.data(withJSONObject: [
@@ -42,12 +42,12 @@ final class EdgeCaseTests: XCTestCase {
         await rateLimitDelay()
 
         let msg = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg.type, "MODEL_SYNC", "Should be MODEL_SYNC (30)")
+        XCTAssertEqual(msg.type, "APP_ENTRY", "Should be APP_ENTRY (30)")
 
         let clientMsg = try Obscura_Client_V1_ClientMessage(serializedBytes: msg.rawBytes)
-        XCTAssertEqual(clientMsg.modelSync.model, "profile")
+        XCTAssertEqual(clientMsg.appEntry.model, "profile")
 
-        let data = try JSONSerialization.jsonObject(with: clientMsg.modelSync.data) as? [String: Any]
+        let data = try JSONSerialization.jsonObject(with: clientMsg.appEntry.data) as? [String: Any]
         XCTAssertEqual(data?["displayName"] as? String, "Alice Display")
         XCTAssertEqual(data?["avatarUrl"] as? String, "att-avatar-123")
 

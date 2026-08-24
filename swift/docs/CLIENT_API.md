@@ -168,9 +168,9 @@ try await client.send(
 ## Receiving Entries
 
 The envelope loop in `connect()` handles all incoming messages automatically:
-- FRIEND_REQUEST → stored in `FriendActor`
+- FRIEND_REQUEST → stored in `FriendStore`
 - FRIEND_RESPONSE → updates friend status
-- MODEL_SYNC → written to `client.inbox` as a durable row, then acked (an ack is a DELETE, so the write comes first)
+- APP_ENTRY → written to `client.inbox` as a durable row, then acked (an ack is a DELETE, so the write comes first)
 - DEVICE_ANNOUNCE → updates friend's device list
 
 The application drains `client.inbox`, authorizes and merges the opaque payload,
@@ -181,7 +181,7 @@ For wake-up handling, subscribe to the events stream:
 ```swift
 for await event in client.events() {
     switch event.type {
-    case "MODEL_SYNC": print("entry from \(event.sourceUserId)")
+    case "APP_ENTRY": print("entry from \(event.sourceUserId)")
     default: break
     }
 }

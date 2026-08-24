@@ -6,9 +6,9 @@ import XCTest
 /// This is the piece that makes SPEC §0.9 checkable rather than aspirational — "never ack before
 /// persisting" means nothing until something says, per arm, what persisting means for that arm.
 ///
-/// Mirrors `ObscuraKit-Kotlin`'s `PayloadClassTest`. The two kits must agree here in a way they need
+/// Mirrors `ObscuraKit-Kotlin`'s `PayloadDispositionTest`. The two kits must agree here in a way they need
 /// not agree elsewhere: a divergence means one of them acks something the other stores.
-final class PayloadClassTests: XCTestCase {
+final class PayloadDispositionTests: XCTestCase {
 
     /// Every arm `client.proto` declares, as the generated oneof cases. Swift's generated enum is not
     /// `CaseIterable` — it has associated values — so the list is written out, and
@@ -17,7 +17,7 @@ final class PayloadClassTests: XCTestCase {
         .friendRequest(.init()), .friendResponse(.init()),
         .sessionReset(.init()),
         .deviceLinkApproval(.init()), .deviceAnnounce(.init()),
-        .modelSync(.init()), .modelSignal(.init()),
+        .appEntry(.init()), .modelSignal(.init()),
     ]
 
     /// **The load-bearing test.** A new arm added to `client.proto` must not slip through
@@ -41,24 +41,24 @@ final class PayloadClassTests: XCTestCase {
     /// device and evicts **oldest-first, silently**. So refusing to ack unknown arms hands a stranger
     /// a remote wipe of the recipient's real undelivered mail.
     func testAnUnsetPayloadIsInboxedRatherThanLeftUnacked() {
-        XCTAssertEqual(classify(nil), .inboxed)
+        XCTAssertEqual(payloadDisposition(nil), .inboxed)
     }
 
-    func testModelSyncIsTheAppsDataPath() {
-        XCTAssertEqual(classify(.modelSync(.init())), .inboxed)
+    func testAppEntryIsTheAppsDataPath() {
+        XCTAssertEqual(payloadDisposition(.appEntry(.init())), .inboxed)
     }
 
     /// The only class permitted to ack without persisting, and it is a closed list. If this ever
     /// grows, the growth is a decision about durability, not a routing tweak.
     func testTypingIndicatorsAreTheOnlyDroppableArm() {
-        let droppable = Self.allArms.filter { classify($0) == .droppable }
+        let droppable = Self.allArms.filter { payloadDisposition($0) == .droppable }
 
         XCTAssertEqual(droppable.count, 1)
         XCTAssertEqual(WireCodec.decodeMessageType(droppable.first), "MODEL_SIGNAL")
     }
 
     func testSwiftLinkApprovalGapIsExplicit() {
-        XCTAssertEqual(classify(.deviceLinkApproval(.init())), .unimplemented)
+        XCTAssertEqual(payloadDisposition(.deviceLinkApproval(.init())), .unimplemented)
     }
 
     /// Kit-owned state stays kit-owned; none of it may reach an app-readable inbox.
@@ -71,13 +71,13 @@ final class PayloadClassTests: XCTestCase {
         ]
 
         for arm in kitInternal {
-            XCTAssertEqual(classify(arm), .kitInternal,
+            XCTAssertEqual(payloadDisposition(arm), .kitInternal,
                            "\(WireCodec.decodeMessageType(arm)) mutates kit-owned state")
         }
     }
 
     /// Cross-kit agreement, spelled out: these are the exact classifications
-    /// `ObscuraKit-Kotlin`'s `PayloadClassTest` asserts. The kits may differ in how they store a row;
+    /// `ObscuraKit-Kotlin`'s `PayloadDispositionTest` asserts. The kits may differ in how they store a row;
     /// they may not differ in whether a given arm is stored at all.
     /// Arms this kit deliberately classifies differently from Kotlin, with the reason. Anything not
     /// in this set must match exactly — the point of the test below is that drift has to be declared
@@ -91,8 +91,8 @@ final class PayloadClassTests: XCTestCase {
     ]
 
     func testEveryArmHasTheSameClassAsTheKotlinKit() {
-        let expected: [String: PayloadClass] = [
-            "MODEL_SYNC": .inboxed,
+        let expected: [String: PayloadDisposition] = [
+            "APP_ENTRY": .inboxed,
             "FRIEND_REQUEST": .kitInternal, "FRIEND_RESPONSE": .kitInternal,
             "DEVICE_ANNOUNCE": .kitInternal,
             "SESSION_RESET": .kitInternal,
@@ -104,7 +104,7 @@ final class PayloadClassTests: XCTestCase {
         XCTAssertEqual(expected.count, Self.allArms.count, "every arm needs a cross-kit expectation")
         for arm in Self.allArms {
             let name = WireCodec.decodeMessageType(arm)
-            XCTAssertEqual(classify(arm), expected[name], "\(name) does not match its expectation")
+            XCTAssertEqual(payloadDisposition(arm), expected[name], "\(name) does not match its expectation")
         }
 
         // The declared divergences must all still be real arms, so the list cannot rot after an arm

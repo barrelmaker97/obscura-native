@@ -42,7 +42,7 @@ enum WireCodec {
         case .sessionReset?: return "SESSION_RESET"
         case .deviceLinkApproval?: return "DEVICE_LINK_APPROVAL"
         case .deviceAnnounce?: return "DEVICE_ANNOUNCE"
-        case .modelSync?: return "MODEL_SYNC"
+        case .appEntry?: return "APP_ENTRY"
         case .modelSignal?: return "MODEL_SIGNAL"
         case .none: return ""
         }
