@@ -18,17 +18,12 @@ import org.junit.jupiter.api.Test
  */
 class LinkCodeTest {
 
-    private fun fakeIdentityKey() = ByteArray(33) { 0xAB.toByte() }
-
     @Test
     fun `generate produces parseable code with all fields populated`() {
-        val key = fakeIdentityKey()
-        val generated = LinkCode.generate("dev-1", "uuid-1", key)
+        val generated = LinkCode.generate("dev-1")
         val parsed = LinkCode.parse(generated.code)
 
         assertEquals("dev-1", parsed.deviceId)
-        assertEquals("uuid-1", parsed.deviceUUID)
-        assertArrayEquals(key, parsed.signalIdentityKey)
         assertEquals(16, parsed.challenge.size, "Challenge must be 16 bytes")
         assertArrayEquals(generated.challenge, parsed.challenge,
             "Generator's challenge must match the one embedded in the code")
@@ -37,9 +32,8 @@ class LinkCodeTest {
 
     @Test
     fun `generate produces fresh challenge each call`() {
-        val key = fakeIdentityKey()
-        val a = LinkCode.generate("d", "u", key)
-        val b = LinkCode.generate("d", "u", key)
+        val a = LinkCode.generate("d")
+        val b = LinkCode.generate("d")
         assertFalse(a.challenge.contentEquals(b.challenge),
             "Two generates must produce different challenges — otherwise replay attacks are possible")
         assertFalse(a.code == b.code)
@@ -47,7 +41,7 @@ class LinkCodeTest {
 
     @Test
     fun `validate accepts freshly-generated code`() {
-        val result = LinkCode.validate(LinkCode.generate("d", "u", fakeIdentityKey()).code)
+        val result = LinkCode.validate(LinkCode.generate("d").code)
         assertTrue(result.valid, "Just-generated code must validate; got error=${result.error}")
         assertNull(result.error)
         assertNotNull(result.data)
@@ -60,8 +54,6 @@ class LinkCodeTest {
         val pastTs = System.currentTimeMillis() - 10 * 60 * 1000 // 10 minutes ago
         val json = org.json.JSONObject().apply {
             put("d", "dev")
-            put("u", "uuid")
-            put("k", java.util.Base64.getEncoder().encodeToString(fakeIdentityKey()))
             put("c", java.util.Base64.getEncoder().encodeToString(ByteArray(16)))
             put("t", pastTs)
         }
@@ -77,8 +69,6 @@ class LinkCodeTest {
         val futureTs = System.currentTimeMillis() + 600_000
         val json = org.json.JSONObject().apply {
             put("d", "dev")
-            put("u", "uuid")
-            put("k", java.util.Base64.getEncoder().encodeToString(fakeIdentityKey()))
             put("c", java.util.Base64.getEncoder().encodeToString(ByteArray(16)))
             put("t", futureTs)
         }
@@ -96,8 +86,6 @@ class LinkCodeTest {
         val nearFuture = System.currentTimeMillis() + 30_000
         val json = org.json.JSONObject().apply {
             put("d", "dev")
-            put("u", "uuid")
-            put("k", java.util.Base64.getEncoder().encodeToString(fakeIdentityKey()))
             put("c", java.util.Base64.getEncoder().encodeToString(ByteArray(16)))
             put("t", nearFuture)
         }
@@ -110,8 +98,6 @@ class LinkCodeTest {
     fun `validate rejects blank deviceId`() {
         val json = org.json.JSONObject().apply {
             put("d", "")
-            put("u", "uuid")
-            put("k", java.util.Base64.getEncoder().encodeToString(fakeIdentityKey()))
             put("c", java.util.Base64.getEncoder().encodeToString(ByteArray(16)))
             put("t", System.currentTimeMillis())
         }
@@ -122,26 +108,9 @@ class LinkCodeTest {
     }
 
     @Test
-    fun `validate rejects empty signal identity key`() {
-        val json = org.json.JSONObject().apply {
-            put("d", "dev")
-            put("u", "uuid")
-            put("k", java.util.Base64.getEncoder().encodeToString(ByteArray(0)))
-            put("c", java.util.Base64.getEncoder().encodeToString(ByteArray(16)))
-            put("t", System.currentTimeMillis())
-        }
-        val code = java.util.Base64.getEncoder().encodeToString(json.toString().toByteArray())
-        val result = LinkCode.validate(code)
-        assertFalse(result.valid)
-        assertEquals("Missing Signal identity key", result.error)
-    }
-
-    @Test
     fun `validate rejects wrong-sized challenge`() {
         val json = org.json.JSONObject().apply {
             put("d", "dev")
-            put("u", "uuid")
-            put("k", java.util.Base64.getEncoder().encodeToString(fakeIdentityKey()))
             put("c", java.util.Base64.getEncoder().encodeToString(ByteArray(8))) // wrong size
             put("t", System.currentTimeMillis())
         }

@@ -58,7 +58,7 @@ final class FriendStateMachineTests: XCTestCase {
         try await alice.befriend(bob.userId!, username: bob.username)
         _ = try await bob.waitForMessage(timeout: 10)
 
-        try await bob.acceptFriend(alice.userId!, username: alice.username)
+        try await bob.acceptFriend(alice.userId!)
         _ = try await alice.waitForMessage(timeout: 10)
 
         // Both sides should be accepted
@@ -112,7 +112,7 @@ final class FriendStateMachineTests: XCTestCase {
         try await bob.connectWebSocket()
         try await alice.befriend(bob.userId!, username: bob.username)
         _ = try await bob.waitForMessage(timeout: 10)
-        try await bob.acceptFriend(alice.userId!, username: alice.username)
+        try await bob.acceptFriend(alice.userId!)
         _ = try await alice.waitForMessage(timeout: 10)
 
         try await alice.befriend(bob.userId!, username: bob.username)

@@ -10,8 +10,6 @@ public struct DeviceLink {
     /// Data contained in a link code.
     public struct LinkCode: Codable, Sendable {
         public let deviceId: String
-        public let deviceUUID: String
-        public let signalIdentityKey: String  // base64
         public let challenge: String          // base64 (16 random bytes)
         public let timestamp: UInt64
 
@@ -30,19 +28,13 @@ public struct DeviceLink {
 
     /// Generate a link code for device linking.
     /// The new device displays this as a QR code or copyable text.
-    public static func generateLinkCode(
-        deviceId: String,
-        deviceUUID: String,
-        signalIdentityKey: Data
-    ) -> String {
+    public static func generateLinkCode(deviceId: String) -> String {
         // 16 random bytes for challenge
         var challengeBytes = [UInt8](repeating: 0, count: 16)
         for i in 0..<16 { challengeBytes[i] = UInt8.random(in: 0...255) }
 
         let code = LinkCode(
             deviceId: deviceId,
-            deviceUUID: deviceUUID,
-            signalIdentityKey: signalIdentityKey.base64EncodedString(),
             challenge: Data(challengeBytes).base64EncodedString(),
             timestamp: UInt64(Date().timeIntervalSince1970 * 1000)
         )
@@ -69,7 +61,6 @@ public struct DeviceLink {
 
         // Check required fields
         guard !code.deviceId.isEmpty,
-              !code.signalIdentityKey.isEmpty,
               !code.challenge.isEmpty else {
             return .invalid("Missing required fields")
         }
@@ -82,10 +73,8 @@ public struct DeviceLink {
         // code makes that expression negative, and `UInt64` subtraction **traps**. A trap is not
         // catchable, so nothing upstream can contain it: scanning a hostile QR code kills the app.
         //
-        // This is the same bug class already fixed in `Wire/ModelSignal.swift`, in the same total
-        // comparison form: compare first, subtract only on the branch where the subtraction is
-        // defined. A future-dated code is treated as fresh, which matches how SPEC §2.4 handles a
-        // peer-supplied time it cannot trust — clamp toward now rather than reject.
+        // Compare first and subtract only on the branch where the subtraction is defined.
+        // A future-dated code is treated as fresh, matching SPEC §2.4's treatment of peer time.
         let now = UInt64(Date().timeIntervalSince1970 * 1000)
         if code.timestamp < now && now - code.timestamp > maxAge {
             return .expired
@@ -100,13 +89,6 @@ public struct DeviceLink {
     public static func verifyChallenge(expected: Data, received: Data) -> Bool {
         guard expected.count == received.count else { return false }
         return constantTimeEqual(expected, received)
-    }
-
-    // MARK: - Extract Key
-
-    /// Extract the Signal identity key from a parsed link code.
-    public static func extractSignalIdentityKey(_ code: LinkCode) -> Data? {
-        Data(base64Encoded: code.signalIdentityKey)
     }
 
     /// Extract the challenge bytes from a parsed link code.

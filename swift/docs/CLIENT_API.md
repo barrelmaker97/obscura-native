@@ -82,20 +82,27 @@ Friends are the social graph. The kit uses them to address devices and to resolv
 // Send friend request (encrypted FRIEND_REQUEST)
 try await client.befriend(userId, username: "alice")
 
-// Accept friend request (encrypted FRIEND_RESPONSE)
+// Accept friend request (encrypted FRIEND_ACCEPT)
 try await client.acceptFriend(userId, username: "alice")
 
-// Query
+// Bridge-facing aggregate query
+let all = await client.getFriends()
+
+// Store-level queries remain available for native callers.
 let friend = await client.friends.getFriend(userId)
 let accepted = await client.friends.getAccepted()
 let pending = await client.friends.getPending()
-let all = await client.friends.getAll()
 let isFriend = await client.friends.isFriend(userId)
 
-// Observe (reactive — SwiftUI-ready)
-for await friends in client.friends.observeAccepted().values { ... }
-// Pending requests: read with getPending(), or filter observeAll() by status.
-for await all in client.friends.observeAll().values { ... }
+// Aggregate observation is a payload-free wake-up. Pull current rows after it fires.
+for await event in client.observeEvents() {
+    if case .friendsChanged = event {
+        render(await client.getFriends())
+    }
+}
+
+// Debug output is pull-only and never appears in ObscuraEvent.
+let debugLines = client.getDebugLog()
 ```
 
 ## Devices
@@ -103,9 +110,7 @@ for await all in client.friends.observeAll().values { ... }
 Devices define where your data lives. Each device has its own Signal identity.
 
 ```swift
-// Announce device list to all friends. Unsigned: this kit never populates
-// DeviceAnnounce.recovery_public_key or .signature on send. On RECEIVE it pins a peer's
-// recovery key trust-on-first-use and verifies later announces against the stored copy.
+// Announce the current device list to all friends.
 try await client.announceDevices()
 
 // Query own devices
@@ -141,21 +146,8 @@ For the full device linking ceremony:
 5. Existing device broadcasts DEVICE_ANNOUNCE to all friends
 
 Because Swift does not handle `DEVICE_LINK_APPROVAL`, the new device does not
-import its P2P/recovery keys, friend export, or complete own-device list. Linking
-remains partial until that receive path is implemented.
-
-## Device Revocation
-
-**There is no remote, recovery-key-signed revocation.** Revoking requires
-access to a device you still hold:
-
-```swift
-try await client.api.deleteDevice(deviceId)
-```
-
-Deletion does not remove the device from the local `DeviceStore`. Calling
-`announceDevices()` immediately afterward would rebroadcast the stale list; no
-public refresh/removal operation currently closes that gap.
+import its friend export or complete own-device list. Linking remains partial
+until that receive path is implemented.
 
 ## Sending Entries
 
@@ -169,7 +161,7 @@ try await client.send(
 
 The envelope loop in `connect()` handles all incoming messages automatically:
 - FRIEND_REQUEST → stored in `FriendStore`
-- FRIEND_RESPONSE → updates friend status
+- FRIEND_ACCEPT → updates friend status
 - APP_ENTRY → written to `client.inbox` as a durable row, then acked (an ack is a DELETE, so the write comes first)
 - DEVICE_ANNOUNCE → updates friend's device list
 

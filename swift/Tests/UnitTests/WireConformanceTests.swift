@@ -18,12 +18,15 @@ final class WireConformanceTests: XCTestCase {
 
     private let payloadByWire: [String: Obscura_Client_V1_ClientMessage.OneOf_Payload] = [
         "friend_request": .friendRequest(Obscura_Client_V1_FriendRequest()),
+        "friend_accept": .friendAccept(Obscura_Client_V1_FriendAccept()),
+        "device_link_approval": .deviceLinkApproval(Obscura_Client_V1_DeviceLinkApproval()),
+        "device_announce": .deviceAnnounce(Obscura_Client_V1_DeviceAnnounce()),
         "app_entry": .appEntry(Obscura_Client_V1_AppEntry()),
-        "model_signal": .modelSignal(Obscura_Client_V1_ModelSignal()),
+        "typing_signal": .typingSignal(Obscura_Client_V1_TypingSignal()),
     ]
-    private let kindByWire: [String: Obscura_Client_V1_SignalKind] = [
-        "SIGNAL_KIND_TYPING": .typing,
-        "SIGNAL_KIND_STOPPED_TYPING": .stoppedTyping,
+    private let typingStateByWire: [String: Obscura_Client_V1_TypingState] = [
+        "TYPING_STATE_STARTED": .started,
+        "TYPING_STATE_STOPPED": .stopped,
     ]
 
     func testWireConformance() throws {
@@ -35,11 +38,16 @@ final class WireConformanceTests: XCTestCase {
             XCTAssertEqual(WireCodec.decodeMessageType(p), app, "messageType \(wire) -> \(app)")
         }
 
-        for m in (v["signalKinds"] as? [[String: Any]] ?? []) {
+        for m in (v["typingStates"] as? [[String: Any]] ?? []) {
             let wire = m["wire"] as? String ?? "", app = m["app"] as? String ?? ""
-            guard let k = kindByWire[wire] else { XCTFail("unmapped wire signalKind \(wire)"); continue }
-            XCTAssertEqual(WireCodec.decodeSignalKind(k), app, "decode \(wire)")
-            XCTAssertEqual(WireCodec.encodeSignalKind(app), k, "encode \(app)")
+            guard let wireState = typingStateByWire[wire],
+                  let appState = TypingState(rawValue: app)
+            else {
+                XCTFail("unmapped typing state \(wire)/\(app)")
+                continue
+            }
+            XCTAssertEqual(WireCodec.decodeTypingState(wireState), appState, "decode \(wire)")
+            XCTAssertEqual(WireCodec.encodeTypingState(appState), wireState, "encode \(app)")
         }
 
         for rt in (v["roundTrip"] as? [[String: Any]] ?? []) {

@@ -92,8 +92,8 @@ def _unique_names(rep: Report, where: str, cases: list) -> None:
 def check_wire(rep: Report, doc: dict) -> None:
     f = "wire.json"
     _check_common(rep, f, doc, "wire")
-    rep.only_keys(f, doc, {"version", "kind", "description", "messageTypes", "signalKinds", "roundTrip"})
-    for mapping in ("messageTypes", "signalKinds"):
+    rep.only_keys(f, doc, {"version", "kind", "description", "messageTypes", "typingStates", "roundTrip"})
+    for mapping in ("messageTypes", "typingStates"):
         if rep.is_nonempty_list(f, doc, mapping):
             for i, m in enumerate(doc[mapping]):
                 w = f"{f} {mapping}[{i}]"

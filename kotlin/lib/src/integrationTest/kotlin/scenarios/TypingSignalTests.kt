@@ -1,6 +1,7 @@
 package scenarios
 
-import com.obscura.kit.wire.SignalManager
+import com.obscura.kit.TypingState
+import com.obscura.kit.wire.TypingTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -10,56 +11,56 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Typing signal tests — typing indicators, read receipts.
+ * Typing signal tests.
  *
- * Unit tests prove the SignalManager works in isolation.
+ * Unit tests prove the in-memory tracker works in isolation.
  * Integration tests prove signals survive Signal Protocol encryption over the wire.
  */
 class TypingSignalTests {
 
-    // ─── Unit: SignalManager in isolation ──────────────────────────
+    // ─── Unit: TypingTracker in isolation ──────────────────────────
 
     @Test
     fun `Receive signal appears in observer`() = runBlocking {
-        val mgr = SignalManager()
-        mgr.receive("directMessage", "typing", mapOf("conversationId" to "conv1"), "device-alice")
+        val mgr = TypingTracker()
+        mgr.receive("conv1", "alice-user", "device-alice", "alice")
 
-        val typers = mgr.observe("directMessage", "typing", "conv1").first()
+        val typers = mgr.observe("conv1").first()
         assertEquals(1, typers.size)
     }
 
     @Test
     fun `Signal auto-expires after 3 seconds`() = runBlocking {
-        val mgr = SignalManager()
-        mgr.receive("directMessage", "typing", mapOf("conversationId" to "conv1"), "device-alice")
+        val mgr = TypingTracker()
+        mgr.receive("conv1", "alice-user", "device-alice", "alice")
 
         delay(3500) // Wait past expiry
 
-        val typers = mgr.observe("directMessage", "typing", "conv1").first()
+        val typers = mgr.observe("conv1").first()
         assertEquals(0, typers.size, "Signal should auto-expire after 3s")
     }
 
     @Test
     fun `Explicit clear removes signal immediately`() = runBlocking {
-        val mgr = SignalManager()
-        mgr.receive("directMessage", "typing", mapOf("conversationId" to "conv1"), "device-alice")
+        val mgr = TypingTracker()
+        mgr.receive("conv1", "alice-user", "device-alice", "alice")
 
         // Verify it's there
-        assertEquals(1, mgr.observe("directMessage", "typing", "conv1").first().size)
+        assertEquals(1, mgr.observe("conv1").first().size)
 
         // Clear it
-        mgr.clear("directMessage", "typing", mapOf("conversationId" to "conv1"), "device-alice")
+        mgr.clear("conv1", "device-alice")
 
-        assertEquals(0, mgr.observe("directMessage", "typing", "conv1").first().size)
+        assertEquals(0, mgr.observe("conv1").first().size)
     }
 
     @Test
     fun `Multiple typers tracked independently`() = runBlocking {
-        val mgr = SignalManager()
-        mgr.receive("directMessage", "typing", mapOf("conversationId" to "conv1", "senderUsername" to "alice"), "device-alice")
-        mgr.receive("directMessage", "typing", mapOf("conversationId" to "conv1", "senderUsername" to "bob"), "device-bob")
+        val mgr = TypingTracker()
+        mgr.receive("conv1", "alice-user", "device-alice", "alice")
+        mgr.receive("conv1", "bob-user", "device-bob", "bob")
 
-        val typers = mgr.observe("directMessage", "typing", "conv1").first()
+        val typers = mgr.observe("conv1").first()
         assertEquals(2, typers.size)
         assertTrue(typers.contains("alice"))
         assertTrue(typers.contains("bob"))
@@ -67,43 +68,39 @@ class TypingSignalTests {
 
     @Test
     fun `Signals scoped to conversation`() = runBlocking {
-        val mgr = SignalManager()
-        mgr.receive("directMessage", "typing", mapOf("conversationId" to "conv1", "senderUsername" to "alice"), "d1")
-        mgr.receive("directMessage", "typing", mapOf("conversationId" to "conv2", "senderUsername" to "bob"), "d2")
+        val mgr = TypingTracker()
+        mgr.receive("conv1", "alice-user", "d1", "alice")
+        mgr.receive("conv2", "bob-user", "d2", "bob")
 
-        assertEquals(1, mgr.observe("directMessage", "typing", "conv1").first().size)
-        assertEquals(1, mgr.observe("directMessage", "typing", "conv2").first().size)
+        assertEquals(1, mgr.observe("conv1").first().size)
+        assertEquals(1, mgr.observe("conv2").first().size)
     }
 
     @Test
     fun `Throttle prevents rapid re-sends`() = runBlocking {
-        val mgr = SignalManager()
-        var sendCount = 0
-        mgr.sendSignal = { _, _, _ -> sendCount++ }
-
-        mgr.emit("directMessage", "typing", mapOf("conversationId" to "conv1"), "my-device")
-        mgr.emit("directMessage", "typing", mapOf("conversationId" to "conv1"), "my-device")
-        mgr.emit("directMessage", "typing", mapOf("conversationId" to "conv1"), "my-device")
-
-        assertEquals(1, sendCount, "Should throttle to 1 send within 2 seconds")
+        val mgr = TypingTracker()
+        assertTrue(mgr.shouldSend("conv1", TypingState.STARTED, "my-device"))
+        assertFalse(mgr.shouldSend("conv1", TypingState.STARTED, "my-device"))
+        assertTrue(mgr.shouldSend("conv1", TypingState.STOPPED, "my-device"),
+            "started and stopped are distinct typed states")
     }
 
     @Test
     fun `Offline does not care about signals`() = runBlocking {
         // Signals are ephemeral — if the receiver is offline, they just don't get them.
         // No queuing, no persistence. This is by design.
-        val mgr = SignalManager()
+        val mgr = TypingTracker()
         // Receive a signal, then expire it — nothing persists
-        mgr.receive("directMessage", "typing", mapOf("conversationId" to "conv1"), "d1")
+        mgr.receive("conv1", "alice-user", "d1", "alice")
         delay(3500)
-        val typers = mgr.observe("directMessage", "typing", "conv1").first()
+        val typers = mgr.observe("conv1").first()
         assertTrue(typers.isEmpty(), "Expired signals should not persist — offline gets nothing, by design")
     }
 
     // ─── Integration: signals over the wire ───────────────────────
 
     @Test
-    fun `Typing signal arrives at friend via MODEL_SIGNAL`() = runBlocking {
+    fun `Typing signal arrives at an explicit recipient`() = runBlocking {
         assumeTrue(checkServer())
 
         val alice = registerAndConnect("sig_a")
@@ -114,12 +111,12 @@ class TypingSignalTests {
         val convId = listOf(alice.userId!!, bob.userId!!).sorted().joinToString("_")
 
         // Alice starts typing
-        alice.sendTyping("directMessage", convId)
+        alice.sendTyping(listOf(bob.userId!!), convId, TypingState.STARTED)
 
-        // Bob receives MODEL_SIGNAL and surfaces the app-facing typing state.
+        // Bob receives TYPING_SIGNAL and surfaces the app-facing typing state.
         val aliceName = alice.username!!
         val typers = withTimeout(15_000) {
-            bob.observeTyping("directMessage", convId)
+            bob.observeTyping(convId)
                 .first { it.contains(aliceName) }
         }
         assertTrue(typers.contains(aliceName), "Bob should observe Alice typing")
@@ -144,10 +141,10 @@ class TypingSignalTests {
         delay(500)
 
         // Alice types while Bob is offline
-        alice.sendTyping("directMessage", convId)
+        alice.sendTyping(listOf(bob.userId!!), convId, TypingState.STARTED)
         delay(500)
 
-        // Bob reconnects — server may deliver the queued MODEL_SIGNAL
+        // Bob reconnects — server may deliver the queued TYPING_SIGNAL
         bob.connect()
 
         // Send a real message to prove the channel works
@@ -158,7 +155,7 @@ class TypingSignalTests {
         repeat(5) {
             try {
                 val msg = bob.waitForMessage(5_000)
-                if (msg.type == "MODEL_SIGNAL") {
+                if (msg.type == "TYPING_SIGNAL") {
                     // Server delivered the stale signal — that's fine, it's ephemeral.
                     // The SignalManager receives it but it expires in 3s. No DB persistence.
                 } else if (msg.type == "APP_ENTRY") {

@@ -17,10 +17,7 @@ public enum ObscuraSchema {
                     username TEXT NOT NULL,
                     status TEXT NOT NULL,
                     devices TEXT NOT NULL DEFAULT '[]',
-                    recovery_public_key BLOB,
                     devices_updated_at INTEGER NOT NULL DEFAULT 0,
-                    is_verified INTEGER NOT NULL DEFAULT 0,
-                    verified_at INTEGER,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 )
@@ -29,22 +26,13 @@ public enum ObscuraSchema {
             try db.execute(sql: """
                 CREATE TABLE device_identity (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
-                    core_username TEXT NOT NULL,
-                    device_id TEXT NOT NULL,
-                    device_uuid TEXT NOT NULL,
-                    p2p_public_key BLOB,
-                    p2p_private_key BLOB,
-                    recovery_public_key BLOB,
-                    link_pending INTEGER NOT NULL DEFAULT 0
+                    device_id TEXT NOT NULL
                 )
             """)
             try db.execute(sql: """
                 CREATE TABLE own_devices (
-                    device_uuid TEXT PRIMARY KEY,
-                    device_id TEXT NOT NULL,
-                    device_name TEXT NOT NULL,
-                    signal_identity_key BLOB,
-                    registration_id INTEGER
+                    device_id TEXT PRIMARY KEY,
+                    device_name TEXT NOT NULL
                 )
             """)
 
@@ -100,10 +88,8 @@ public enum ObscuraSchema {
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     envelope_id TEXT NOT NULL UNIQUE,
                     kind TEXT NOT NULL,
-                    received_at INTEGER NOT NULL,
                     sender_user_id TEXT NOT NULL,
                     sender_device_id TEXT,
-                    sender_display_name TEXT,
                     model_key TEXT,
                     entry_id TEXT,
                     sent_at INTEGER,
@@ -119,6 +105,7 @@ public enum ObscuraSchema {
                     data TEXT NOT NULL,
                     timestamp INTEGER NOT NULL,
                     author_device_id TEXT NOT NULL,
+                    local_metadata TEXT,
                     PRIMARY KEY (model_name, id)
                 )
             """)

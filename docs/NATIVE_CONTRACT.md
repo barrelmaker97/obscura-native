@@ -58,9 +58,9 @@ looks locally.
 
 - Transport (REST + gateway WebSocket, envelope ack, offline send queue).
 - The Signal protocol: sessions, identity, prekeys, encrypt/decrypt.
-- Device provisioning, linking, revocation, takeover.
-- The friend graph — needed both to address a peer's devices and to resolve a
-  sender's display name locally (§0.5).
+- Device provisioning, linking, and takeover.
+- The friend graph — needed to address a peer's devices and label ephemeral
+  sender state locally (§0.5).
 - The durable inbox and the opaque entry store. The push path writes to them
   with the app closed, so they cannot live in the app's runtime. A kit owns no
   message model of its own: an inbox row is opaque payload bytes plus the
@@ -85,14 +85,6 @@ looks locally.
   the kit only needs to be told what an app's data *means* if it is doing
   something it should not be doing.
 - **MUST NOT post an OS notification.** Notification policy and copy belong to the app.
-
-**One carve-out, stated here because §0 wins every conflict and an unwritten exception is how a
-rule quietly becomes fiction.**
-
-1. **Ephemeral signals.** A `MODEL_SIGNAL` carries its audience in `contextId`, and the kit resolves
-   it — this is the one audience a kit still derives. It is narrow by construction: the value MUST be
-   the canonical two-party id of §1.3, exactly two participants, and a value that is not MUST send
-   **nothing** (§1.2). The kit reads no application field to do it.
 
 ### 0.5 Sender identity
 
@@ -214,25 +206,20 @@ set, includes the author's other devices for self-sync, and excludes the
 sending device. It MUST NOT infer or broaden an application audience.
 `KIT_API.md` §5 defines this send path.
 
-### 1.2 Ephemeral signal audience
+### 1.2 Explicit typing recipients
 
-`MODEL_SIGNAL.contextId` is the one audience the native layer resolves. It MUST:
+The caller names typing recipients exactly as it names entry recipients.
+`TypingSignal.context_id` is opaque correlation data: the native layer MUST NOT
+parse it, derive recipients from it, or broaden the supplied audience.
 
-- be the canonical two-party value from §1.3;
-- contain the local user;
-- contain the authenticated sender on receive; and
-- resolve the remote participant through the accepted-friend graph.
+Typing state is explicit and typed:
 
-Invalid signals are dropped rather than broadcast. Audience tests MUST use at
-least three identities.
+- `TYPING_STATE_STARTED` refreshes the sender device's short-lived state.
+- `TYPING_STATE_STOPPED` clears that sender device's state immediately.
+- unspecified or unknown states are ignored.
 
-### 1.3 Canonical `conversationId`
-
-A conversation ID is the two participant user IDs sorted lexicographically and
-joined with one underscore, `"userIdA_userIdB"`. Splitting on `_` MUST yield
-exactly two non-empty parts.
-
-Application entry routing is defined in pix's `DOMAIN_CONTRACT.md`.
+Typing signals are ephemeral, in-memory, throttled, and allowed to expire
+without durable inbox storage.
 
 ---
 
@@ -260,7 +247,7 @@ express deterministically, so it is verified in implementation tests instead.
 The client content is a
 [`ClientMessage`](../protocol/obscura/client/v1/client.proto). This
 section pins two things about it: the **wire ↔ app-facing-form mappings** (the message
-kind and the two content enums (`EncryptedMessage.Type` is transport, not content)) and **round-trip preservation** of a
+kind and typed typing state; `EncryptedMessage.Type` is transport, not content) and **round-trip preservation** of a
 `AppEntry`.
 
 ### 3.1 Message kind and enum mappings
@@ -271,15 +258,14 @@ enum to keep in sync (a kind/content mismatch is unrepresentable). The app-facin
 type string is the oneof field name upper-snake-cased (`friend_request` →
 `"FRIEND_REQUEST"`, `app_entry` → `"APP_ENTRY"`).
 
-The app never sees the `SIGNAL_KIND_` wire prefix. A kit MUST map:
-
 | Wire form | App-facing form | Rule |
 |---|---|---|
 | `ClientMessage.payload` arm e.g. `app_entry` | `"APP_ENTRY"` | oneof field name, upper-snake |
-| `SignalKind` e.g. `SIGNAL_KIND_TYPING` | `"typing"` | mapped name (see table) |
+| `TypingState` `TYPING_STATE_STARTED` | `started` | explicit typed state |
+| `TypingState` `TYPING_STATE_STOPPED` | `stopped` | explicit typed state |
 
-An unset payload maps to `""` (ignored). `*_UNSPECIFIED` (and any unrecognized
-value) for `SignalKind` is ignored. These mappings MUST live in one place per
+An unset payload maps to `""` (ignored). `TYPING_STATE_UNSPECIFIED` and any
+unrecognized typing state are ignored. These mappings MUST live in one place per
 kit (a `WireCodec`), never duplicated, so they cannot drift within a kit.
 
 ### 3.2 Round-trip

@@ -32,11 +32,11 @@ fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobu
   typealias Version = _2
 }
 
-nonisolated enum Obscura_Client_V1_SignalKind: SwiftProtobuf.Enum, Swift.CaseIterable {
+nonisolated enum Obscura_Client_V1_TypingState: SwiftProtobuf.Enum, Swift.CaseIterable {
   typealias RawValue = Int
   case unspecified // = 0
-  case typing // = 1
-  case stoppedTyping // = 2
+  case started // = 1
+  case stopped // = 2
   case UNRECOGNIZED(Int)
 
   init() {
@@ -46,8 +46,8 @@ nonisolated enum Obscura_Client_V1_SignalKind: SwiftProtobuf.Enum, Swift.CaseIte
   init?(rawValue: Int) {
     switch rawValue {
     case 0: self = .unspecified
-    case 1: self = .typing
-    case 2: self = .stoppedTyping
+    case 1: self = .started
+    case 2: self = .stopped
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -55,17 +55,17 @@ nonisolated enum Obscura_Client_V1_SignalKind: SwiftProtobuf.Enum, Swift.CaseIte
   var rawValue: Int {
     switch self {
     case .unspecified: return 0
-    case .typing: return 1
-    case .stoppedTyping: return 2
+    case .started: return 1
+    case .stopped: return 2
     case .UNRECOGNIZED(let i): return i
     }
   }
 
   // The compiler won't synthesize support with the UNRECOGNIZED case.
-  static let allCases: [Obscura_Client_V1_SignalKind] = [
+  static let allCases: [Obscura_Client_V1_TypingState] = [
     .unspecified,
-    .typing,
-    .stoppedTyping,
+    .started,
+    .stopped,
   ]
 
 }
@@ -139,20 +139,12 @@ nonisolated struct Obscura_Client_V1_ClientMessage: Sendable {
     set {payload = .friendRequest(newValue)}
   }
 
-  var friendResponse: Obscura_Client_V1_FriendResponse {
+  var friendAccept: Obscura_Client_V1_FriendAccept {
     get {
-      if case .friendResponse(let v)? = payload {return v}
-      return Obscura_Client_V1_FriendResponse()
+      if case .friendAccept(let v)? = payload {return v}
+      return Obscura_Client_V1_FriendAccept()
     }
-    set {payload = .friendResponse(newValue)}
-  }
-
-  var sessionReset: Obscura_Client_V1_SessionReset {
-    get {
-      if case .sessionReset(let v)? = payload {return v}
-      return Obscura_Client_V1_SessionReset()
-    }
-    set {payload = .sessionReset(newValue)}
+    set {payload = .friendAccept(newValue)}
   }
 
   var deviceLinkApproval: Obscura_Client_V1_DeviceLinkApproval {
@@ -179,24 +171,23 @@ nonisolated struct Obscura_Client_V1_ClientMessage: Sendable {
     set {payload = .appEntry(newValue)}
   }
 
-  var modelSignal: Obscura_Client_V1_ModelSignal {
+  var typingSignal: Obscura_Client_V1_TypingSignal {
     get {
-      if case .modelSignal(let v)? = payload {return v}
-      return Obscura_Client_V1_ModelSignal()
+      if case .typingSignal(let v)? = payload {return v}
+      return Obscura_Client_V1_TypingSignal()
     }
-    set {payload = .modelSignal(newValue)}
+    set {payload = .typingSignal(newValue)}
   }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   nonisolated enum OneOf_Payload: Equatable, Sendable {
     case friendRequest(Obscura_Client_V1_FriendRequest)
-    case friendResponse(Obscura_Client_V1_FriendResponse)
-    case sessionReset(Obscura_Client_V1_SessionReset)
+    case friendAccept(Obscura_Client_V1_FriendAccept)
     case deviceLinkApproval(Obscura_Client_V1_DeviceLinkApproval)
     case deviceAnnounce(Obscura_Client_V1_DeviceAnnounce)
     case appEntry(Obscura_Client_V1_AppEntry)
-    case modelSignal(Obscura_Client_V1_ModelSignal)
+    case typingSignal(Obscura_Client_V1_TypingSignal)
 
   }
 
@@ -215,26 +206,10 @@ nonisolated struct Obscura_Client_V1_FriendRequest: Sendable {
   init() {}
 }
 
-nonisolated struct Obscura_Client_V1_FriendResponse: Sendable {
+nonisolated struct Obscura_Client_V1_FriendAccept: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
-
-  var username: String = String()
-
-  var accepted: Bool = false
-
-  var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  init() {}
-}
-
-nonisolated struct Obscura_Client_V1_SessionReset: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  var reason: String = String()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -246,30 +221,19 @@ nonisolated struct Obscura_Client_V1_DeviceInfo: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var deviceUuid: String = String()
+  var id: String = String()
 
-  var deviceID: String = String()
-
-  var deviceName: String = String()
-
-  var signalIdentityKey: Data = Data()
+  var name: String = String()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 }
 
-/// Existing-device approval of a newly provisioned own device.
 nonisolated struct Obscura_Client_V1_DeviceLinkApproval: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
-
-  var p2PPublicKey: Data = Data()
-
-  var p2PPrivateKey: Data = Data()
-
-  var recoveryPublicKey: Data = Data()
 
   var challengeResponse: Data = Data()
 
@@ -282,22 +246,12 @@ nonisolated struct Obscura_Client_V1_DeviceLinkApproval: Sendable {
   init() {}
 }
 
-/// Complete replacement device list. Signed recovery/revocation hardening is
-/// kit infrastructure, not application model data.
 nonisolated struct Obscura_Client_V1_DeviceAnnounce: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   var devices: [Obscura_Client_V1_DeviceInfo] = []
-
-  var timestamp: UInt64 = 0
-
-  var isRevocation: Bool = false
-
-  var signature: Data = Data()
-
-  var recoveryPublicKey: Data = Data()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -322,16 +276,14 @@ nonisolated struct Obscura_Client_V1_AppEntry: Sendable {
   init() {}
 }
 
-nonisolated struct Obscura_Client_V1_ModelSignal: Sendable {
+nonisolated struct Obscura_Client_V1_TypingSignal: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var model: String = String()
-
-  var kind: Obscura_Client_V1_SignalKind = .unspecified
-
   var contextID: String = String()
+
+  var state: Obscura_Client_V1_TypingState = .unspecified
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -342,8 +294,8 @@ nonisolated struct Obscura_Client_V1_ModelSignal: Sendable {
 
 fileprivate nonisolated let _protobuf_package = "obscura.client.v1"
 
-nonisolated extension Obscura_Client_V1_SignalKind: SwiftProtobuf._ProtoNameProviding {
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0SIGNAL_KIND_UNSPECIFIED\0\u{1}SIGNAL_KIND_TYPING\0\u{1}SIGNAL_KIND_STOPPED_TYPING\0")
+nonisolated extension Obscura_Client_V1_TypingState: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0TYPING_STATE_UNSPECIFIED\0\u{1}TYPING_STATE_STARTED\0\u{1}TYPING_STATE_STOPPED\0")
 }
 
 nonisolated extension Obscura_Client_V1_EncryptedMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
@@ -387,7 +339,7 @@ nonisolated extension Obscura_Client_V1_EncryptedMessage.TypeEnum: SwiftProtobuf
 
 nonisolated extension Obscura_Client_V1_ClientMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ClientMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{2}timestamp\0\u{4}\u{12}friend_request\0\u{3}friend_response\0\u{4}\u{4}session_reset\0\u{4}\u{5}device_link_approval\0\u{3}device_announce\0\u{4}\u{13}app_entry\0\u{4}\u{2}model_signal\0\u{b}type\0\u{b}text\0\u{b}device_recovery_announce\0\u{b}history_chunk\0\u{b}settings_sync\0\u{b}read_sync\0\u{b}sync_blob\0\u{b}sent_sync\0\u{b}content_reference\0\u{b}chunked_content_reference\0\u{b}sync_request\0\u{b}friend_sync\0\u{c}\u{1}\u{1}\u{c}\u{a}\u{1}\u{c}\u{b}\u{1}\u{c}\u{c}\u{1}\u{c}\u{f}\u{1}\u{c}\u{10}\u{1}\u{c} \u{1}\u{c}(\u{8}\u{c}3\u{1}")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}timestamp\0\u{3}friend_request\0\u{3}friend_accept\0\u{3}device_link_approval\0\u{3}device_announce\0\u{3}app_entry\0\u{3}typing_signal\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -395,8 +347,8 @@ nonisolated extension Obscura_Client_V1_ClientMessage: SwiftProtobuf.Message, Sw
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.timestamp) }()
-      case 20: try {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.timestamp) }()
+      case 2: try {
         var v: Obscura_Client_V1_FriendRequest?
         var hadOneofValue = false
         if let current = self.payload {
@@ -409,33 +361,20 @@ nonisolated extension Obscura_Client_V1_ClientMessage: SwiftProtobuf.Message, Sw
           self.payload = .friendRequest(v)
         }
       }()
-      case 21: try {
-        var v: Obscura_Client_V1_FriendResponse?
+      case 3: try {
+        var v: Obscura_Client_V1_FriendAccept?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .friendResponse(let m) = current {v = m}
+          if case .friendAccept(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .friendResponse(v)
+          self.payload = .friendAccept(v)
         }
       }()
-      case 25: try {
-        var v: Obscura_Client_V1_SessionReset?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .sessionReset(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .sessionReset(v)
-        }
-      }()
-      case 30: try {
+      case 4: try {
         var v: Obscura_Client_V1_DeviceLinkApproval?
         var hadOneofValue = false
         if let current = self.payload {
@@ -448,7 +387,7 @@ nonisolated extension Obscura_Client_V1_ClientMessage: SwiftProtobuf.Message, Sw
           self.payload = .deviceLinkApproval(v)
         }
       }()
-      case 31: try {
+      case 5: try {
         var v: Obscura_Client_V1_DeviceAnnounce?
         var hadOneofValue = false
         if let current = self.payload {
@@ -461,7 +400,7 @@ nonisolated extension Obscura_Client_V1_ClientMessage: SwiftProtobuf.Message, Sw
           self.payload = .deviceAnnounce(v)
         }
       }()
-      case 50: try {
+      case 6: try {
         var v: Obscura_Client_V1_AppEntry?
         var hadOneofValue = false
         if let current = self.payload {
@@ -474,17 +413,17 @@ nonisolated extension Obscura_Client_V1_ClientMessage: SwiftProtobuf.Message, Sw
           self.payload = .appEntry(v)
         }
       }()
-      case 52: try {
-        var v: Obscura_Client_V1_ModelSignal?
+      case 7: try {
+        var v: Obscura_Client_V1_TypingSignal?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .modelSignal(let m) = current {v = m}
+          if case .typingSignal(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .modelSignal(v)
+          self.payload = .typingSignal(v)
         }
       }()
       default: break
@@ -498,36 +437,32 @@ nonisolated extension Obscura_Client_V1_ClientMessage: SwiftProtobuf.Message, Sw
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
     if self.timestamp != 0 {
-      try visitor.visitSingularUInt64Field(value: self.timestamp, fieldNumber: 2)
+      try visitor.visitSingularUInt64Field(value: self.timestamp, fieldNumber: 1)
     }
     switch self.payload {
     case .friendRequest?: try {
       guard case .friendRequest(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 20)
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
     }()
-    case .friendResponse?: try {
-      guard case .friendResponse(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 21)
-    }()
-    case .sessionReset?: try {
-      guard case .sessionReset(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 25)
+    case .friendAccept?: try {
+      guard case .friendAccept(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     }()
     case .deviceLinkApproval?: try {
       guard case .deviceLinkApproval(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 30)
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
     }()
     case .deviceAnnounce?: try {
       guard case .deviceAnnounce(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 31)
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
     }()
     case .appEntry?: try {
       guard case .appEntry(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 50)
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
     }()
-    case .modelSignal?: try {
-      guard case .modelSignal(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 52)
+    case .typingSignal?: try {
+      guard case .typingSignal(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
     }()
     case nil: break
     }
@@ -572,66 +507,20 @@ nonisolated extension Obscura_Client_V1_FriendRequest: SwiftProtobuf.Message, Sw
   }
 }
 
-nonisolated extension Obscura_Client_V1_FriendResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".FriendResponse"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}username\0\u{1}accepted\0")
+nonisolated extension Obscura_Client_V1_FriendAccept: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".FriendAccept"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.username) }()
-      case 2: try { try decoder.decodeSingularBoolField(value: &self.accepted) }()
-      default: break
-      }
-    }
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.username.isEmpty {
-      try visitor.visitSingularStringField(value: self.username, fieldNumber: 1)
-    }
-    if self.accepted != false {
-      try visitor.visitSingularBoolField(value: self.accepted, fieldNumber: 2)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Obscura_Client_V1_FriendResponse, rhs: Obscura_Client_V1_FriendResponse) -> Bool {
-    if lhs.username != rhs.username {return false}
-    if lhs.accepted != rhs.accepted {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Obscura_Client_V1_SessionReset: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".SessionReset"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}reason\0")
-
-  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.reason) }()
-      default: break
-      }
-    }
-  }
-
-  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.reason.isEmpty {
-      try visitor.visitSingularStringField(value: self.reason, fieldNumber: 1)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  static func ==(lhs: Obscura_Client_V1_SessionReset, rhs: Obscura_Client_V1_SessionReset) -> Bool {
-    if lhs.reason != rhs.reason {return false}
+  static func ==(lhs: Obscura_Client_V1_FriendAccept, rhs: Obscura_Client_V1_FriendAccept) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -639,7 +528,7 @@ nonisolated extension Obscura_Client_V1_SessionReset: SwiftProtobuf.Message, Swi
 
 nonisolated extension Obscura_Client_V1_DeviceInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DeviceInfo"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}device_uuid\0\u{3}device_id\0\u{3}device_name\0\u{3}signal_identity_key\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -647,36 +536,26 @@ nonisolated extension Obscura_Client_V1_DeviceInfo: SwiftProtobuf.Message, Swift
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.deviceUuid) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.deviceID) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.deviceName) }()
-      case 4: try { try decoder.decodeSingularBytesField(value: &self.signalIdentityKey) }()
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.deviceUuid.isEmpty {
-      try visitor.visitSingularStringField(value: self.deviceUuid, fieldNumber: 1)
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
     }
-    if !self.deviceID.isEmpty {
-      try visitor.visitSingularStringField(value: self.deviceID, fieldNumber: 2)
-    }
-    if !self.deviceName.isEmpty {
-      try visitor.visitSingularStringField(value: self.deviceName, fieldNumber: 3)
-    }
-    if !self.signalIdentityKey.isEmpty {
-      try visitor.visitSingularBytesField(value: self.signalIdentityKey, fieldNumber: 4)
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Obscura_Client_V1_DeviceInfo, rhs: Obscura_Client_V1_DeviceInfo) -> Bool {
-    if lhs.deviceUuid != rhs.deviceUuid {return false}
-    if lhs.deviceID != rhs.deviceID {return false}
-    if lhs.deviceName != rhs.deviceName {return false}
-    if lhs.signalIdentityKey != rhs.signalIdentityKey {return false}
+    if lhs.id != rhs.id {return false}
+    if lhs.name != rhs.name {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -684,7 +563,7 @@ nonisolated extension Obscura_Client_V1_DeviceInfo: SwiftProtobuf.Message, Swift
 
 nonisolated extension Obscura_Client_V1_DeviceLinkApproval: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DeviceLinkApproval"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}p2p_public_key\0\u{3}p2p_private_key\0\u{3}recovery_public_key\0\u{3}challenge_response\0\u{3}own_devices\0\u{3}friends_export\0\u{b}sessions_export\0\u{b}trusted_ids_export\0\u{c}\u{7}\u{1}\u{c}\u{8}\u{1}")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}challenge_response\0\u{3}own_devices\0\u{3}friends_export\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -692,43 +571,28 @@ nonisolated extension Obscura_Client_V1_DeviceLinkApproval: SwiftProtobuf.Messag
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBytesField(value: &self.p2PPublicKey) }()
-      case 2: try { try decoder.decodeSingularBytesField(value: &self.p2PPrivateKey) }()
-      case 3: try { try decoder.decodeSingularBytesField(value: &self.recoveryPublicKey) }()
-      case 4: try { try decoder.decodeSingularBytesField(value: &self.challengeResponse) }()
-      case 5: try { try decoder.decodeRepeatedMessageField(value: &self.ownDevices) }()
-      case 6: try { try decoder.decodeSingularBytesField(value: &self.friendsExport) }()
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.challengeResponse) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.ownDevices) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.friendsExport) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.p2PPublicKey.isEmpty {
-      try visitor.visitSingularBytesField(value: self.p2PPublicKey, fieldNumber: 1)
-    }
-    if !self.p2PPrivateKey.isEmpty {
-      try visitor.visitSingularBytesField(value: self.p2PPrivateKey, fieldNumber: 2)
-    }
-    if !self.recoveryPublicKey.isEmpty {
-      try visitor.visitSingularBytesField(value: self.recoveryPublicKey, fieldNumber: 3)
-    }
     if !self.challengeResponse.isEmpty {
-      try visitor.visitSingularBytesField(value: self.challengeResponse, fieldNumber: 4)
+      try visitor.visitSingularBytesField(value: self.challengeResponse, fieldNumber: 1)
     }
     if !self.ownDevices.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.ownDevices, fieldNumber: 5)
+      try visitor.visitRepeatedMessageField(value: self.ownDevices, fieldNumber: 2)
     }
     if !self.friendsExport.isEmpty {
-      try visitor.visitSingularBytesField(value: self.friendsExport, fieldNumber: 6)
+      try visitor.visitSingularBytesField(value: self.friendsExport, fieldNumber: 3)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Obscura_Client_V1_DeviceLinkApproval, rhs: Obscura_Client_V1_DeviceLinkApproval) -> Bool {
-    if lhs.p2PPublicKey != rhs.p2PPublicKey {return false}
-    if lhs.p2PPrivateKey != rhs.p2PPrivateKey {return false}
-    if lhs.recoveryPublicKey != rhs.recoveryPublicKey {return false}
     if lhs.challengeResponse != rhs.challengeResponse {return false}
     if lhs.ownDevices != rhs.ownDevices {return false}
     if lhs.friendsExport != rhs.friendsExport {return false}
@@ -739,7 +603,7 @@ nonisolated extension Obscura_Client_V1_DeviceLinkApproval: SwiftProtobuf.Messag
 
 nonisolated extension Obscura_Client_V1_DeviceAnnounce: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DeviceAnnounce"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}devices\0\u{1}timestamp\0\u{3}is_revocation\0\u{1}signature\0\u{3}recovery_public_key\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}devices\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -748,10 +612,6 @@ nonisolated extension Obscura_Client_V1_DeviceAnnounce: SwiftProtobuf.Message, S
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.devices) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.timestamp) }()
-      case 3: try { try decoder.decodeSingularBoolField(value: &self.isRevocation) }()
-      case 4: try { try decoder.decodeSingularBytesField(value: &self.signature) }()
-      case 5: try { try decoder.decodeSingularBytesField(value: &self.recoveryPublicKey) }()
       default: break
       }
     }
@@ -761,27 +621,11 @@ nonisolated extension Obscura_Client_V1_DeviceAnnounce: SwiftProtobuf.Message, S
     if !self.devices.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.devices, fieldNumber: 1)
     }
-    if self.timestamp != 0 {
-      try visitor.visitSingularUInt64Field(value: self.timestamp, fieldNumber: 2)
-    }
-    if self.isRevocation != false {
-      try visitor.visitSingularBoolField(value: self.isRevocation, fieldNumber: 3)
-    }
-    if !self.signature.isEmpty {
-      try visitor.visitSingularBytesField(value: self.signature, fieldNumber: 4)
-    }
-    if !self.recoveryPublicKey.isEmpty {
-      try visitor.visitSingularBytesField(value: self.recoveryPublicKey, fieldNumber: 5)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Obscura_Client_V1_DeviceAnnounce, rhs: Obscura_Client_V1_DeviceAnnounce) -> Bool {
     if lhs.devices != rhs.devices {return false}
-    if lhs.timestamp != rhs.timestamp {return false}
-    if lhs.isRevocation != rhs.isRevocation {return false}
-    if lhs.signature != rhs.signature {return false}
-    if lhs.recoveryPublicKey != rhs.recoveryPublicKey {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -789,7 +633,7 @@ nonisolated extension Obscura_Client_V1_DeviceAnnounce: SwiftProtobuf.Message, S
 
 nonisolated extension Obscura_Client_V1_AppEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".AppEntry"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}model\0\u{1}id\0\u{2}\u{2}timestamp\0\u{1}data\0\u{b}op\0\u{b}signature\0\u{b}author_device_id\0\u{c}\u{3}\u{1}\u{c}\u{6}\u{1}\u{c}\u{7}\u{1}")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}model\0\u{1}id\0\u{1}timestamp\0\u{1}data\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -799,8 +643,8 @@ nonisolated extension Obscura_Client_V1_AppEntry: SwiftProtobuf.Message, SwiftPr
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.model) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.id) }()
-      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.timestamp) }()
-      case 5: try { try decoder.decodeSingularBytesField(value: &self.data) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.timestamp) }()
+      case 4: try { try decoder.decodeSingularBytesField(value: &self.data) }()
       default: break
       }
     }
@@ -814,10 +658,10 @@ nonisolated extension Obscura_Client_V1_AppEntry: SwiftProtobuf.Message, SwiftPr
       try visitor.visitSingularStringField(value: self.id, fieldNumber: 2)
     }
     if self.timestamp != 0 {
-      try visitor.visitSingularUInt64Field(value: self.timestamp, fieldNumber: 4)
+      try visitor.visitSingularUInt64Field(value: self.timestamp, fieldNumber: 3)
     }
     if !self.data.isEmpty {
-      try visitor.visitSingularBytesField(value: self.data, fieldNumber: 5)
+      try visitor.visitSingularBytesField(value: self.data, fieldNumber: 4)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -832,9 +676,9 @@ nonisolated extension Obscura_Client_V1_AppEntry: SwiftProtobuf.Message, SwiftPr
   }
 }
 
-nonisolated extension Obscura_Client_V1_ModelSignal: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".ModelSignal"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}model\0\u{1}kind\0\u{3}context_id\0")
+nonisolated extension Obscura_Client_V1_TypingSignal: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".TypingSignal"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}context_id\0\u{1}state\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -842,31 +686,26 @@ nonisolated extension Obscura_Client_V1_ModelSignal: SwiftProtobuf.Message, Swif
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.model) }()
-      case 2: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.contextID) }()
+      case 1: try { try decoder.decodeSingularStringField(value: &self.contextID) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self.state) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.model.isEmpty {
-      try visitor.visitSingularStringField(value: self.model, fieldNumber: 1)
-    }
-    if self.kind != .unspecified {
-      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 2)
-    }
     if !self.contextID.isEmpty {
-      try visitor.visitSingularStringField(value: self.contextID, fieldNumber: 3)
+      try visitor.visitSingularStringField(value: self.contextID, fieldNumber: 1)
+    }
+    if self.state != .unspecified {
+      try visitor.visitSingularEnumField(value: self.state, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Obscura_Client_V1_ModelSignal, rhs: Obscura_Client_V1_ModelSignal) -> Bool {
-    if lhs.model != rhs.model {return false}
-    if lhs.kind != rhs.kind {return false}
+  static func ==(lhs: Obscura_Client_V1_TypingSignal, rhs: Obscura_Client_V1_TypingSignal) -> Bool {
     if lhs.contextID != rhs.contextID {return false}
+    if lhs.state != rhs.state {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

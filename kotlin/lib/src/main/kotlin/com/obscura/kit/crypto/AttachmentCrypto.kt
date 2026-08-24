@@ -1,6 +1,5 @@
 package com.obscura.kit.crypto
 
-import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -14,8 +13,8 @@ import javax.crypto.spec.SecretKeySpec
  *   1. Generate random 32-byte content key + 12-byte nonce
  *   2. Encrypt plaintext with AES-256-GCM
  *   3. Upload ciphertext to server (server never sees plaintext)
- *   4. Embed contentKey + nonce + hash in the application's encrypted APP_ENTRY payload
- *   5. Recipient downloads ciphertext, decrypts with key + nonce, verifies hash
+ *   4. Embed contentKey + nonce in the application's encrypted APP_ENTRY payload
+ *   5. Recipient downloads ciphertext and decrypts with authenticated AES-GCM
  */
 object AttachmentCrypto {
 
@@ -28,8 +27,6 @@ object AttachmentCrypto {
         val ciphertext: ByteArray,
         val contentKey: ByteArray,
         val nonce: ByteArray,
-        val contentHash: ByteArray,
-        val sizeBytes: Long
     )
 
     /**
@@ -39,8 +36,6 @@ object AttachmentCrypto {
     fun encrypt(plaintext: ByteArray): EncryptedAttachment {
         val contentKey = ByteArray(KEY_SIZE).also { csprng.nextBytes(it) }
         val nonce = ByteArray(NONCE_SIZE).also { csprng.nextBytes(it) }
-        val contentHash = MessageDigest.getInstance("SHA-256").digest(plaintext)
-
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(contentKey, "AES"), GCMParameterSpec(GCM_TAG_BITS, nonce))
         val ciphertext = cipher.doFinal(plaintext)
@@ -49,27 +44,16 @@ object AttachmentCrypto {
             ciphertext = ciphertext,
             contentKey = contentKey,
             nonce = nonce,
-            contentHash = contentHash,
-            sizeBytes = plaintext.size.toLong()
         )
     }
 
     /**
-     * Decrypt content with AES-256-GCM and verify integrity.
-     * Throws on wrong key, tampered ciphertext, or hash mismatch.
+     * Decrypt content with AES-256-GCM.
+     * Throws on a wrong key or tampered ciphertext.
      */
-    fun decrypt(ciphertext: ByteArray, contentKey: ByteArray, nonce: ByteArray, expectedHash: ByteArray? = null): ByteArray {
+    fun decrypt(ciphertext: ByteArray, contentKey: ByteArray, nonce: ByteArray): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(contentKey, "AES"), GCMParameterSpec(GCM_TAG_BITS, nonce))
-        val plaintext = cipher.doFinal(ciphertext)
-
-        if (expectedHash != null) {
-            val actualHash = MessageDigest.getInstance("SHA-256").digest(plaintext)
-            if (!MessageDigest.isEqual(actualHash, expectedHash)) {
-                throw SecurityException("Attachment integrity check failed: hash mismatch")
-            }
-        }
-
-        return plaintext
+        return cipher.doFinal(ciphertext)
     }
 }

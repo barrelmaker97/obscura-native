@@ -13,12 +13,9 @@ import kotlinx.coroutines.withContext
  */
 data class InboxRecord(
     val id: Long,
-    val envelopeId: String,
     val kind: String,
-    val receivedAt: Long,
     val senderUserId: String,
     val senderDeviceId: String?,
-    val senderDisplayName: String?,
     val modelKey: String?,
     val entryId: String?,
     val sentAt: Long?,
@@ -29,15 +26,25 @@ data class InboxRecord(
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is InboxRecord) return false
-        return id == other.id && envelopeId == other.envelopeId && kind == other.kind &&
-            receivedAt == other.receivedAt && senderUserId == other.senderUserId &&
-            senderDeviceId == other.senderDeviceId && senderDisplayName == other.senderDisplayName &&
+        return id == other.id && kind == other.kind &&
+            senderUserId == other.senderUserId && senderDeviceId == other.senderDeviceId &&
             modelKey == other.modelKey && entryId == other.entryId && sentAt == other.sentAt &&
             payload.contentEquals(other.payload)
     }
 
     override fun hashCode(): Int = 31 * id.hashCode() + payload.contentHashCode()
 }
+
+internal data class InboxInsert(
+    val envelopeId: String,
+    val kind: String,
+    val senderUserId: String,
+    val senderDeviceId: String?,
+    val modelKey: String?,
+    val entryId: String?,
+    val sentAt: Long?,
+    val payload: ByteArray,
+)
 
 /**
  * The durable inbox (`KIT_API.md` §3).
@@ -79,11 +86,11 @@ class InboxStore internal constructor(private val db: ObscuraDatabase) {
      * held, so the caller should ack exactly as it would after a fresh insert. Acking is what stops
      * the server sending it a third time.
      */
-    internal suspend fun put(record: InboxRecord): Boolean = withContext(dispatcher) {
+    internal suspend fun put(record: InboxInsert): Boolean = withContext(dispatcher) {
         val existedBefore = db.inboxQueries.existsByEnvelopeId(record.envelopeId).executeAsOne()
         db.inboxQueries.insertRow(
-            record.envelopeId, record.kind, record.receivedAt, record.senderUserId,
-            record.senderDeviceId, record.senderDisplayName, record.modelKey, record.entryId,
+            record.envelopeId, record.kind, record.senderUserId,
+            record.senderDeviceId, record.modelKey, record.entryId,
             record.sentAt, record.payload,
         )
 
@@ -111,12 +118,9 @@ class InboxStore internal constructor(private val db: ObscuraDatabase) {
         db.inboxQueries.peek(limit.toLong()).executeAsList().map { row ->
             InboxRecord(
                 id = row.id,
-                envelopeId = row.envelope_id,
                 kind = row.kind,
-                receivedAt = row.received_at,
                 senderUserId = row.sender_user_id,
                 senderDeviceId = row.sender_device_id,
-                senderDisplayName = row.sender_display_name,
                 modelKey = row.model_key,
                 entryId = row.entry_id,
                 sentAt = row.sent_at,
@@ -174,8 +178,8 @@ class InboxStore internal constructor(private val db: ObscuraDatabase) {
     /**
      * Destroy every row.
      *
-     * The §3.3 rule 2 carve-out, and **not** an eviction policy: a device wipe or a remote
-     * revocation has to be able to destroy decrypted plaintext, and that is a security requirement.
+     * The §3.3 rule 2 carve-out, and **not** an eviction policy: a device wipe has to be able to
+     * destroy decrypted plaintext, and that is a security requirement.
      * Note it takes no selector — destroying the whole store is what keeps it from becoming "drop
      * the oldest when things get tight", which is the rule this design exists to refuse.
      */

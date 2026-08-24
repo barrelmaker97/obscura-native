@@ -1,7 +1,6 @@
 package com.obscura.kit
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
-import com.obscura.kit.crypto.RecoveryKeys
 import com.obscura.kit.db.ObscuraDatabase
 import com.obscura.kit.stores.FriendStore
 import com.obscura.kit.stores.FriendStatus
@@ -9,8 +8,8 @@ import com.obscura.kit.stores.InboxStore
 import com.google.protobuf.ByteString
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import obscura.client.v1.Client
 import obscura.client.v1.Client.ClientMessage
-import obscura.client.v1.Client.SignalKind
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 
@@ -142,170 +141,89 @@ class ReceivePathTest {
         val row = InboxStore(c.db).peek().single()
         assertEquals(peerUserId, row.senderUserId)
         assertEquals("dev-peer", row.senderDeviceId)
-        assertEquals("alice", row.senderDisplayName, "SPEC §0.5: the name comes from OUR friend graph")
         assertEquals("APP_ENTRY", row.kind)
         assertEquals("pix", row.modelKey)
     }
 
-    // ── DEVICE_ANNOUNCE: trust-on-first-use on the recovery key ───────────────
+    // ── DEVICE_ANNOUNCE ───────────────────────────────────────────────────────
 
-    private val phrase = com.obscura.kit.crypto.Bip39.generateMnemonic()
-    private val otherPhrase = com.obscura.kit.crypto.Bip39.generateMnemonic()
-
-    private fun announce(
-        deviceIds: List<String>,
-        isRevocation: Boolean,
-        signWith: String? = null,
-        offerKeyFrom: String? = null,
-        timestamp: Long = 1_700_000_000_000,
-    ): ClientMessage {
-        val payload = RecoveryKeys.serializeAnnounceForSigning(deviceIds, timestamp, isRevocation)
-        return ClientMessage.newBuilder()
+    private fun announce(deviceIds: List<String>, timestamp: Long = 1_700_000_000_000) =
+        ClientMessage.newBuilder()
+            .setTimestamp(timestamp)
             .setDeviceAnnounce(obscura.client.v1.deviceAnnounce {
                 for (id in deviceIds) {
                     devices.add(obscura.client.v1.deviceInfo {
-                        deviceUuid = id; deviceId = id; deviceName = "D"
+                        this.id = id
+                        name = "D"
                     })
                 }
-                this.timestamp = timestamp
-                this.isRevocation = isRevocation
-                if (signWith != null) {
-                    signature = ByteString.copyFrom(RecoveryKeys.signWithPhrase(signWith, payload))
-                }
-                if (offerKeyFrom != null) {
-                    recoveryPublicKey = ByteString.copyFrom(RecoveryKeys.getPublicKey(offerKeyFrom).serialize())
-                }
-            }).build()
-    }
+            })
+            .build()
 
     @Test
-    fun `an unsigned announce from a friend updates the device list`() = runBlocking {
+    fun `an announce from a friend replaces the device list`() = runBlocking {
         val c = newClient()
         val friends = FriendStore(c.db)
         friends.add(peerUserId, "alice", FriendStatus.ACCEPTED)
 
-        c.handleDeviceAnnounce(announce(listOf("dev-a"), isRevocation = false), peerUserId)
+        c.handleDeviceAnnounce(announce(listOf("dev-a")), peerUserId)
 
-        assertEquals(listOf("dev-a"), friends.get(peerUserId)!!.devices.map { it.deviceId })
+        assertEquals(listOf("dev-a"), friends.get(peerUserId)!!.devices.map { it.id })
     }
 
     @Test
-    fun `the first announce carrying a recovery key pins it`() = runBlocking {
+    fun `an announce from an unknown user does not create a friend`() = runBlocking {
         val c = newClient()
         val friends = FriendStore(c.db)
-        friends.add(peerUserId, "alice", FriendStatus.ACCEPTED)
-
-        c.handleDeviceAnnounce(
-            announce(listOf("dev-a"), isRevocation = false, signWith = phrase, offerKeyFrom = phrase),
-            peerUserId,
-        )
-
-        assertArrayEquals(
-            RecoveryKeys.getPublicKey(phrase).serialize(),
-            friends.get(peerUserId)!!.recoveryPublicKey,
-            "client.proto calls this the key 'for friend to verify FUTURE revocation signatures'",
-        )
+        c.handleDeviceAnnounce(announce(listOf("dev-a")), peerUserId)
+        assertNull(friends.get(peerUserId))
     }
 
-    /** Peer-supplied key material must not override a pinned recovery key. */
-    @Test
-    fun `a self-consistent announce under a different key is rejected once one is pinned`() = runBlocking {
-        val c = newClient()
-        val friends = FriendStore(c.db)
-        friends.add(peerUserId, "alice", FriendStatus.ACCEPTED)
-        c.handleDeviceAnnounce(
-            announce(listOf("dev-a"), isRevocation = false, signWith = phrase, offerKeyFrom = phrase),
-            peerUserId,
-        )
+    // ── TYPING_SIGNAL ─────────────────────────────────────────────────────────
 
-        c.handleDeviceAnnounce(
-            announce(listOf("attacker-dev"), isRevocation = true, signWith = otherPhrase, offerKeyFrom = otherPhrase),
-            peerUserId,
-        )
-
-        assertEquals(listOf("dev-a"), friends.get(peerUserId)!!.devices.map { it.deviceId },
-            "a signature that verifies only under a key from the same message proves nothing")
-        assertArrayEquals(
-            RecoveryKeys.getPublicKey(phrase).serialize(),
-            friends.get(peerUserId)!!.recoveryPublicKey,
-            "and the pin must not be replaced by the attempt",
-        )
-    }
-
-    /** A revocation cannot be verified when no recovery key is pinned. */
-    @Test
-    fun `a revocation with nothing pinned to check it against is rejected`() = runBlocking {
-        val c = newClient()
-        val friends = FriendStore(c.db)
-        friends.add(peerUserId, "alice", FriendStatus.ACCEPTED, listOf(
-            com.obscura.kit.stores.FriendDeviceInfo("dev-a", "dev-a", "A"),
-            com.obscura.kit.stores.FriendDeviceInfo("dev-b", "dev-b", "B"),
-        ))
-
-        c.handleDeviceAnnounce(announce(listOf("dev-a"), isRevocation = true), peerUserId)
-
-        assertEquals(setOf("dev-a", "dev-b"), friends.get(peerUserId)!!.devices.map { it.deviceId }.toSet(),
-            "an unverifiable revocation must not be able to drop a device")
-    }
-
-    @Test
-    fun `a revocation signed under the pinned key is applied`() = runBlocking {
-        val c = newClient()
-        val friends = FriendStore(c.db)
-        friends.add(peerUserId, "alice", FriendStatus.ACCEPTED)
-        c.handleDeviceAnnounce(
-            announce(listOf("dev-a", "dev-b"), isRevocation = false, signWith = phrase, offerKeyFrom = phrase),
-            peerUserId,
-        )
-
-        c.handleDeviceAnnounce(announce(listOf("dev-a"), isRevocation = true, signWith = phrase), peerUserId)
-
-        assertEquals(listOf("dev-a"), friends.get(peerUserId)!!.devices.map { it.deviceId })
-    }
-
-    // ── MODEL_SIGNAL: the receive side must check the audience too ────────────
-
-    private fun typing(contextId: String) = ClientMessage.newBuilder()
-        .setModelSignal(obscura.client.v1.modelSignal {
-            model = "directMessage"
-            kind = SignalKind.SIGNAL_KIND_TYPING
+    private fun typing(contextId: String, state: Client.TypingState) = ClientMessage.newBuilder()
+        .setTimestamp(System.currentTimeMillis())
+        .setTypingSignal(obscura.client.v1.typingSignal {
             this.contextId = contextId
+            this.state = state
         }).build()
 
-    /**
-     * The SEND side already fails closed on a contextId that does not name exactly two participants.
-     * The RECEIVE side applied no check at all, so a peer could emit a typing indicator into any
-     * conversation id — including ones it is not in — and `observeTyping` keys on that id verbatim.
-     */
     @Test
-    fun `a typing signal for a conversation the sender is not in is dropped`() = runBlocking {
-        val c = newClient()
-        val strangersConversation = "aaa_bbb"
-
-        c.handleModelSignal(typing(strangersConversation), peerUserId, "dev-peer")
-
-        assertEquals(emptyList<String>(), c.observeTyping("directMessage", strangersConversation).first())
-    }
-
-    @Test
-    fun `a typing signal with a non-two-party contextId is dropped`() = runBlocking {
-        val c = newClient()
-        // One participant, not two — the shape the send side already refuses to broadcast.
-        val broadcast = selfUserId
-
-        c.handleModelSignal(typing(broadcast), peerUserId, "dev-peer")
-
-        assertEquals(emptyList<String>(), c.observeTyping("directMessage", broadcast).first())
-    }
-
-    @Test
-    fun `a typing signal in the senders own two-party conversation is accepted`() = runBlocking {
+    fun `a started typing signal is visible under its opaque context`() = runBlocking {
         val c = newClient()
         FriendStore(c.db).add(peerUserId, "alice", FriendStatus.ACCEPTED)
-        val conversation = "${selfUserId}_$peerUserId"
+        c.handleTypingSignal(
+            typing("thread-123", Client.TypingState.TYPING_STATE_STARTED),
+            peerUserId,
+            "dev-peer",
+        )
+        assertEquals(listOf("alice"), c.observeTyping("thread-123").first())
+    }
 
-        c.handleModelSignal(typing(conversation), peerUserId, "dev-peer")
+    @Test
+    fun `a stopped typing signal clears the sender device`() = runBlocking {
+        val c = newClient()
+        c.handleTypingSignal(
+            typing("thread-123", Client.TypingState.TYPING_STATE_STARTED),
+            peerUserId,
+            "dev-peer",
+        )
+        c.handleTypingSignal(
+            typing("thread-123", Client.TypingState.TYPING_STATE_STOPPED),
+            peerUserId,
+            "dev-peer",
+        )
+        assertEquals(emptyList<String>(), c.observeTyping("thread-123").first())
+    }
 
-        assertEquals(listOf("alice"), c.observeTyping("directMessage", conversation).first())
+    @Test
+    fun `an unspecified typing state is ignored`() = runBlocking {
+        val c = newClient()
+        c.handleTypingSignal(
+            typing("thread-123", Client.TypingState.TYPING_STATE_UNSPECIFIED),
+            peerUserId,
+            "dev-peer",
+        )
+        assertEquals(emptyList<String>(), c.observeTyping("thread-123").first())
     }
 }

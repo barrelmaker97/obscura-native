@@ -106,8 +106,8 @@ suspend fun becomeFriends(a: ObscuraClient, b: ObscuraClient) {
     },
         "Receiver should see pending request from sender")
 
-    b.acceptFriend(a.userId!!, a.username!!)
-    a.waitForMessage() // FRIEND_RESPONSE
+    b.acceptFriend(a.userId!!)
+    a.waitForMessage() // FRIEND_ACCEPT
     delay(300)
 
     assertTrue(a.friendList.value.any { it.userId == b.userId && it.status == FriendStatus.ACCEPTED },

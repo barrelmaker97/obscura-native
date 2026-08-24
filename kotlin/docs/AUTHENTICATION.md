@@ -47,7 +47,6 @@ existingDevice.validateAndApproveLink(linkCode)
 - The challenge response (proving the approver saw the code)
 - The account's device list
 - Friend data export
-- P2P and recovery keys (if configured)
 
 ### What happens on approval
 
@@ -119,18 +118,6 @@ client.connect()
 ```
 
 Signal keys, friend lists, inbox rows and stored entries persist in the database. The session restore just re-establishes the network identity.
-
-## Recovery Phrase
-
-Not implemented. There is no recovery phrase, no encrypted backup, and no remote
-device revocation. Revoking a device requires access to an existing linked one.
-
-The BIP39, recovery-keypair, verification-code and backup-encryption primitives
-in `crypto/` are kept and unit-tested so recovery can be rebuilt on `EntryStore`,
-but nothing in the kit calls them on the send side. The one live consumer is the
-**receive** side: `handleDeviceAnnounce` pins a peer's `recovery_public_key` on
-first use and rejects any later signed or revocation announce that does not
-verify under the pinned key. That defense stays regardless, and fails closed.
 
 ## What You Can Rely On
 

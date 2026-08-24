@@ -44,7 +44,6 @@ class PersistenceTests {
         val bobUserId = bob1.userId!!
         val bobDeviceId = bob1.deviceId
         val bobUsername = bob1.username
-        val bobRegId = bob1.registrationId
 
         // Establish friendship with state verification
         becomeFriends(alice, bob1)
@@ -72,7 +71,6 @@ class PersistenceTests {
             userId = bobUserId,
             deviceId = bobDeviceId,
             username = bobUsername,
-            registrationId = bobRegId
         )
 
         // Connect — should drain the server queue

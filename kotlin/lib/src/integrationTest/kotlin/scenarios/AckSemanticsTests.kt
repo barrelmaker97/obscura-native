@@ -48,7 +48,6 @@ class AckSemanticsTests {
         override fun preKeyReplenishFailed(reason: String) {}
         override fun identityChanged(address: String) {}
         override fun sessionEstablishFailed(userId: String, reason: String) {}
-        override fun signatureVerificationFailed(sourceUserId: String, messageType: String) {}
         override fun databaseError(store: String, operation: String, reason: String) {}
     }
 

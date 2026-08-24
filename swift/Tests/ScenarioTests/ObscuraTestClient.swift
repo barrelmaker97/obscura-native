@@ -106,7 +106,7 @@ public class ObscuraTestClient {
     }
 
     public func acceptFriend(_ userId: String, username: String = "") async throws {
-        try await client.acceptFriend(userId, username: username)
+        try await client.acceptFriend(userId)
         await rateLimitDelay()
     }
 
@@ -122,7 +122,7 @@ public class ObscuraTestClient {
         try await a.befriend(b.userId!, username: b.username)
         _ = try await b.waitForMessage(timeout: 10) // FRIEND_REQUEST
         try await b.acceptFriend(a.userId!, username: a.username)
-        _ = try await a.waitForMessage(timeout: 10) // FRIEND_RESPONSE
+        _ = try await a.waitForMessage(timeout: 10) // FRIEND_ACCEPT
     }
 
     /// Register two users, connect both, complete friend handshake.

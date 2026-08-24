@@ -19,9 +19,8 @@ class AttachmentTests {
         assertEquals(ConnectionState.CONNECTED, alice.connectionState.value)
 
         val payload = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()) + ByteArray(200)
-        val (attachmentId, expiresAt) = alice.uploadAttachment(payload)
+        val attachmentId = alice.uploadAttachment(payload)
         assertTrue(attachmentId.isNotEmpty())
-        assertTrue(expiresAt > 0)
 
         val downloaded = alice.downloadAttachment(attachmentId)
         assertArrayEquals(payload, downloaded)

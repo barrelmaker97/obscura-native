@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
@@ -20,7 +19,7 @@ class AttachmentCryptoTest {
         val plaintext = ByteArray(4096) { (it % 256).toByte() }
         val enc = AttachmentCrypto.encrypt(plaintext)
 
-        val decoded = AttachmentCrypto.decrypt(enc.ciphertext, enc.contentKey, enc.nonce, enc.contentHash)
+        val decoded = AttachmentCrypto.decrypt(enc.ciphertext, enc.contentKey, enc.nonce)
         assertArrayEquals(plaintext, decoded)
     }
 
@@ -29,8 +28,6 @@ class AttachmentCryptoTest {
         val enc = AttachmentCrypto.encrypt(byteArrayOf(1, 2, 3))
         assertEquals(32, enc.contentKey.size, "AES-256 key must be 32 bytes")
         assertEquals(12, enc.nonce.size, "GCM standard nonce is 12 bytes")
-        assertEquals(32, enc.contentHash.size, "SHA-256 hash is 32 bytes")
-        assertEquals(3L, enc.sizeBytes)
     }
 
     @Test
@@ -75,27 +72,9 @@ class AttachmentCryptoTest {
     }
 
     @Test
-    fun `decrypt with mismatched expected hash throws SecurityException`() {
-        val enc = AttachmentCrypto.encrypt("payload".toByteArray())
-        val wrongHash = ByteArray(32) { 0xCC.toByte() }
-        val ex = assertThrows(SecurityException::class.java) {
-            AttachmentCrypto.decrypt(enc.ciphertext, enc.contentKey, enc.nonce, wrongHash)
-        }
-        assertTrue(ex.message!!.contains("integrity"),
-            "Error message must clearly indicate integrity failure for forensic logs")
-    }
-
-    @Test
-    fun `decrypt with correct hash succeeds`() {
-        val enc = AttachmentCrypto.encrypt("payload".toByteArray())
-        val decoded = AttachmentCrypto.decrypt(enc.ciphertext, enc.contentKey, enc.nonce, enc.contentHash)
-        assertArrayEquals("payload".toByteArray(), decoded)
-    }
-
-    @Test
     fun `handles empty plaintext`() {
         val enc = AttachmentCrypto.encrypt(ByteArray(0))
-        val decoded = AttachmentCrypto.decrypt(enc.ciphertext, enc.contentKey, enc.nonce, enc.contentHash)
+        val decoded = AttachmentCrypto.decrypt(enc.ciphertext, enc.contentKey, enc.nonce)
         assertEquals(0, decoded.size)
     }
 }

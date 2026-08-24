@@ -18,19 +18,11 @@ data class FriendData(
     val username: String,
     val status: FriendStatus,
     val devices: List<FriendDeviceInfo> = emptyList(),
-    /**
-     * The peer's recovery public key, pinned on the first DEVICE_ANNOUNCE that carried one and
-     * never rewritten (`ObscuraClient.handleDeviceAnnounce`). Null until then. Mirrors
-     * ObscuraKit-swift's `Friend.recoveryPublicKey`.
-     */
-    val recoveryPublicKey: ByteArray? = null,
 )
 
 data class FriendDeviceInfo(
-    val deviceUuid: String,
-    val deviceId: String,
-    val deviceName: String,
-    val registrationId: Int = 1,
+    val id: String,
+    val name: String,
 )
 
 /**
@@ -44,10 +36,8 @@ internal fun parseFriendDevices(json: String): List<FriendDeviceInfo> {
         (0 until arr.length()).map { i ->
             val obj = arr.getJSONObject(i)
             FriendDeviceInfo(
-                deviceUuid = obj.optString("deviceUuid", ""),
-                deviceId = obj.optString("deviceId", ""),
-                deviceName = obj.optString("deviceName", ""),
-                registrationId = obj.optInt("registrationId", 1)
+                id = obj.optString("deviceId", ""),
+                name = obj.optString("deviceName", ""),
             )
         }
     } catch (e: Exception) {
@@ -65,10 +55,8 @@ class FriendStore internal constructor(private val db: ObscuraDatabase) {
         withContext(dispatcher) {
             val devicesJson = JSONArray(devices.map { d ->
                 JSONObject().apply {
-                    put("deviceUuid", d.deviceUuid)
-                    put("deviceId", d.deviceId)
-                    put("deviceName", d.deviceName)
-                    put("registrationId", d.registrationId)
+                    put("deviceId", d.id)
+                    put("deviceName", d.name)
                 }
             }).toString()
 
@@ -96,32 +84,22 @@ class FriendStore internal constructor(private val db: ObscuraDatabase) {
         db.friendQueries.selectByStatus(FriendStatus.ACCEPTED.value).executeAsList().map { it.toFriendData() }
     }
 
-    suspend fun updateDevices(userId: String, devices: List<FriendDeviceInfo>) = withContext(dispatcher) {
+    suspend fun updateDevices(
+        userId: String,
+        devices: List<FriendDeviceInfo>,
+        timestamp: Long = System.currentTimeMillis(),
+    ) = withContext(dispatcher) {
         // Still gated on the row existing: an UPDATE against an absent user_id is a silent no-op,
         // and that is the intended behaviour (a stranger's DEVICE_ANNOUNCE must not create a friend).
         // The explicit read keeps that fact readable instead of implied by SQL semantics.
         db.friendQueries.selectById(userId).executeAsOneOrNull() ?: return@withContext
         val devicesJson = JSONArray(devices.map { d ->
             JSONObject().apply {
-                put("deviceUuid", d.deviceUuid)
-                put("deviceId", d.deviceId)
-                put("deviceName", d.deviceName)
-                put("registrationId", d.registrationId)
+                put("deviceId", d.id)
+                put("deviceName", d.name)
             }
         }).toString()
-        db.friendQueries.updateDevices(devicesJson, System.currentTimeMillis(), userId)
-    }
-
-    /**
-     * Pin [key] as this peer's recovery public key. Trust-on-first-use: the caller only reaches here
-     * when nothing is pinned yet, and nothing in the kit overwrites a pin afterwards.
-     *
-     * A no-op for a user who is not in the friend graph — there is no row to pin it to, and
-     * inventing one would let any stranger write to the friend table.
-     */
-    suspend fun pinRecoveryPublicKey(userId: String, key: ByteArray) = withContext(dispatcher) {
-        db.friendQueries.selectById(userId).executeAsOneOrNull() ?: return@withContext
-        db.friendQueries.updateRecoveryPublicKey(key, System.currentTimeMillis(), userId)
+        db.friendQueries.updateDevices(devicesJson, timestamp, timestamp, userId, timestamp)
     }
 
     suspend fun remove(userId: String) = withContext(dispatcher) {
@@ -162,7 +140,6 @@ class FriendStore internal constructor(private val db: ObscuraDatabase) {
             username = username,
             status = FriendStatus.entries.find { it.value == status } ?: FriendStatus.PENDING_SENT,
             devices = parseFriendDevices(devices),
-            recoveryPublicKey = recovery_public_key,
         )
     }
 }

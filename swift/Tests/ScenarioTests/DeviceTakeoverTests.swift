@@ -45,8 +45,8 @@ final class DeviceTakeoverTests: XCTestCase {
         let req = try await bob.waitForMessage(timeout: 15) // FRIEND_REQUEST
         XCTAssertEqual(req.type, "FRIEND_REQUEST")
 
-        try await bob.acceptFriend(alice.userId!, username: alice.username)
-        _ = try await alice.waitForMessage(timeout: 15) // FRIEND_RESPONSE
+        try await bob.acceptFriend(alice.userId!)
+        _ = try await alice.waitForMessage(timeout: 15) // FRIEND_ACCEPT
 
         // Verify friendship established
         let aliceFriend = await alice.friends.getFriend(bob.userId!)

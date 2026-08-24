@@ -7,12 +7,9 @@ import GRDB
 /// other kind, including an unknown arm — there is no `AppEntry` to derive them from.
 public struct InboxRecord: Sendable, Equatable {
     public let id: Int64
-    public let envelopeId: String
     public let kind: String
-    public let receivedAt: UInt64
     public let senderUserId: String
     public let senderDeviceId: String?
-    public let senderDisplayName: String?
     public let modelKey: String?
     public let entryId: String?
     public let sentAt: UInt64?
@@ -20,29 +17,34 @@ public struct InboxRecord: Sendable, Equatable {
 
     public init(
         id: Int64 = 0,
-        envelopeId: String,
         kind: String,
-        receivedAt: UInt64,
         senderUserId: String,
         senderDeviceId: String? = nil,
-        senderDisplayName: String? = nil,
         modelKey: String? = nil,
         entryId: String? = nil,
         sentAt: UInt64? = nil,
         payload: Data
     ) {
         self.id = id
-        self.envelopeId = envelopeId
         self.kind = kind
-        self.receivedAt = receivedAt
         self.senderUserId = senderUserId
         self.senderDeviceId = senderDeviceId
-        self.senderDisplayName = senderDisplayName
         self.modelKey = modelKey
         self.entryId = entryId
         self.sentAt = sentAt
         self.payload = payload
     }
+}
+
+struct InboxInsert: Sendable {
+    let envelopeId: String
+    let kind: String
+    let senderUserId: String
+    let senderDeviceId: String?
+    let modelKey: String?
+    let entryId: String?
+    let sentAt: UInt64?
+    let payload: Data
 }
 
 /// The durable inbox (`KIT_API.md` §3).
@@ -100,7 +102,7 @@ public actor InboxStore {
     /// so the caller should ack exactly as it would after a fresh insert. Acking is what stops the
     /// server sending it a third time.
     @discardableResult
-    func put(_ record: InboxRecord) async throws -> Bool {
+    func put(_ record: InboxInsert) async throws -> Bool {
         try await db.write { db in
             let existedBefore = try Bool.fetchOne(
                 db, sql: "SELECT EXISTS(SELECT 1 FROM inbox_rows WHERE envelope_id = ?)",
@@ -108,12 +110,12 @@ public actor InboxStore {
 
             try db.execute(sql: """
                 INSERT OR IGNORE INTO inbox_rows (
-                    envelope_id, kind, received_at, sender_user_id, sender_device_id,
-                    sender_display_name, model_key, entry_id, sent_at, payload
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    envelope_id, kind, sender_user_id, sender_device_id,
+                    model_key, entry_id, sent_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
-                record.envelopeId, record.kind, Int64(record.receivedAt), record.senderUserId,
-                record.senderDeviceId, record.senderDisplayName, record.modelKey, record.entryId,
+                record.envelopeId, record.kind, record.senderUserId,
+                record.senderDeviceId, record.modelKey, record.entryId,
                 record.sentAt.map { Int64($0) }, record.payload,
             ])
 
@@ -145,12 +147,9 @@ public actor InboxStore {
             """, arguments: [limit]).map { row in
                 InboxRecord(
                     id: row["id"],
-                    envelopeId: row["envelope_id"],
                     kind: row["kind"],
-                    receivedAt: UInt64(row["received_at"] as Int64),
                     senderUserId: row["sender_user_id"],
                     senderDeviceId: row["sender_device_id"],
-                    senderDisplayName: row["sender_display_name"],
                     modelKey: row["model_key"],
                     entryId: row["entry_id"],
                     // Saturating, not `UInt64(_:)`: that TRAPS on a negative value, which would be a
@@ -214,8 +213,8 @@ public actor InboxStore {
 
     /// Destroy every row.
     ///
-    /// The §3.3 rule 2 carve-out, and **not** an eviction policy: a device wipe or a remote
-    /// revocation has to be able to destroy decrypted plaintext, and that is a security requirement.
+    /// The §3.3 rule 2 carve-out, and **not** an eviction policy: a device wipe has to be able to
+    /// destroy decrypted plaintext, and that is a security requirement.
     /// Note it takes no selector — destroying the whole store is what keeps it from becoming "drop
     /// the oldest when things get tight", which is the rule this design exists to refuse.
     func wipe() async throws {

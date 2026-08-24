@@ -72,7 +72,15 @@ try await client.connect()
 // Friends
 try await client.befriend(userId)
 try await client.acceptFriend(userId)
-for await friends in client.friends.observeAccepted().values { ... }
+let friends = await client.getFriends()
+
+// Aggregate friend events are payload-free wake-ups; pull canonical rows after each one.
+for await event in client.observeEvents() {
+    if case .friendsChanged = event {
+        render(await client.getFriends())
+    }
+}
+let debugLines = client.getDebugLog() // debug output is pull-only, never a live event
 
 // Entries — send, receive, store. modelKey and payload are opaque to the kit.
 try await client.send(to: [userId], modelKey: "story", entryId: id, payload: bytes)
@@ -81,9 +89,12 @@ try await client.inbox.consume(rows.map(\.id))
 try await client.entries.put(model: "story", entry: entry)
 let all = try await client.entries.all(model: "story")
 
+// StoredEntry.localMetadata is an optional opaque local-only sidecar. It is persisted by
+// EntryStore but never serialized into AppEntry or sent to another device.
+
 // Ephemeral signals (typing indicators — not persisted, dropped rather than inboxed)
-await client.sendTyping(modelKey: "directMessage", conversationId: convId)
-for await who in client.observeTyping(modelKey: "directMessage", conversationId: convId).values { ... }
+await client.sendTyping(to: [userId], contextId: contextId, state: .started)
+for await who in client.observeTyping(contextId: contextId).values { ... }
 
 // Device linking (QR/code approval, enforced for new devices)
 let code = client.generateLinkCode()
@@ -107,7 +118,7 @@ each other, so broader behavioral interoperability is not claimed.
 - Offline/reconnect: the server queues, and the inbox absorbs the duplicates that produces
 - Attachments: encrypt, upload, download, cache — the bytes path, kept
 - Device linking: QR/code generation, validation, approval flow
-- Ephemeral signals: typing indicators, in-memory only, audience fails closed
+- Ephemeral signals: caller-addressed typed STARTED/STOPPED indicators, in-memory only
 - Self-sync: own *other* devices get your content too, and the sending device does not
 - One current pre-release schema owned by `ObscuraSchema`
 - Cross-platform: the **wire format** interoperates with Android
@@ -116,7 +127,6 @@ each other, so broader behavioral interoperability is not claimed.
 
 - Group-targeted sync has no server test
 - Entry expiry is not implemented on either platform
-- No remote device revocation; use `api.deleteDevice` from a device you still hold
 - A linked device learns the friend graph at link time only, not afterwards
 
 ## Build & Test

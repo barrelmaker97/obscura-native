@@ -53,7 +53,6 @@ public struct PreKeyBundleResponse: Decodable {
 
 public struct AttachmentResponse: Decodable {
     public let id: String
-    public let expiresAt: Double?
 }
 
 // MARK: - Gateway

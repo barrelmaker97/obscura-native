@@ -7,19 +7,11 @@ import kotlinx.coroutines.withContext
 
 data class DeviceIdentityData(
     val deviceId: String,
-    val userId: String,
-    val username: String,
-    val token: String,
-    val p2pPublicKey: ByteArray? = null,
-    val p2pPrivateKey: ByteArray? = null,
-    val recoveryPublicKey: ByteArray? = null,
-    val recoveryPrivateKey: ByteArray? = null
 )
 
 data class OwnDeviceData(
     val deviceId: String,
     val deviceName: String,
-    val signalIdentityKey: ByteArray? = null
 )
 
 /**
@@ -29,41 +21,16 @@ class DeviceStore internal constructor(private val db: ObscuraDatabase) {
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
 
     suspend fun storeIdentity(identity: DeviceIdentityData) = withContext(dispatcher) {
-        db.deviceQueries.insertIdentity(
-            identity.deviceId,
-            identity.userId,
-            identity.username,
-            identity.token,
-            identity.p2pPublicKey,
-            identity.p2pPrivateKey,
-            identity.recoveryPublicKey,
-            identity.recoveryPrivateKey
-        )
+        db.deviceQueries.insertIdentity(identity.deviceId)
     }
 
     suspend fun getIdentity(): DeviceIdentityData? = withContext(dispatcher) {
         val row = db.deviceQueries.selectIdentity().executeAsOneOrNull() ?: return@withContext null
-        DeviceIdentityData(
-            deviceId = row.device_id,
-            userId = row.user_id,
-            username = row.username,
-            token = row.token,
-            p2pPublicKey = row.p2p_public_key,
-            p2pPrivateKey = row.p2p_private_key,
-            recoveryPublicKey = row.recovery_public_key,
-            recoveryPrivateKey = row.recovery_private_key
-        )
+        DeviceIdentityData(deviceId = row.device_id)
     }
 
     suspend fun addOwnDevice(device: OwnDeviceData) = withContext(dispatcher) {
-        db.deviceQueries.insertDevice(
-            device.deviceId,
-            device.deviceName,
-            null,
-            device.signalIdentityKey,
-            1, // is_own = true
-            System.currentTimeMillis()
-        )
+        db.deviceQueries.insertDevice(device.deviceId, device.deviceName)
     }
 
     suspend fun getOwnDevices(): List<OwnDeviceData> = withContext(dispatcher) {
@@ -71,7 +38,6 @@ class DeviceStore internal constructor(private val db: ObscuraDatabase) {
             OwnDeviceData(
                 deviceId = row.device_id,
                 deviceName = row.device_name,
-                signalIdentityKey = row.signal_identity_key
             )
         }
     }
@@ -79,14 +45,7 @@ class DeviceStore internal constructor(private val db: ObscuraDatabase) {
     suspend fun setOwnDevices(devices: List<FriendDeviceInfo>) = withContext(dispatcher) {
         db.deviceQueries.deleteAllDevices()
         for (d in devices) {
-            db.deviceQueries.insertDevice(
-                d.deviceId.ifBlank { d.deviceUuid }, // deviceId is the primary key
-                d.deviceName,
-                null, // user_id — own devices, not friend devices
-                null, // signal_identity_key — never carried on the wire for a device list
-                1, // is_own
-                System.currentTimeMillis()
-            )
+            db.deviceQueries.insertDevice(d.id, d.name)
         }
     }
 

@@ -59,8 +59,9 @@ schema parser.** If a task seems to require one, re-check the boundary in
 
 - **Confined coroutines:** Each domain class uses `Dispatchers.Default.limitedParallelism(1)` — Kotlin equivalent of Swift Actors
 - **Auto-session building:** `Messenger.queueMessage()` fetches prekey bundles and builds Signal sessions on demand
-- **StateFlow for UI:** `connectionState`, `authState`, and `friendList`. Pending requests are
-  `friendList` rows with status `pending_received`.
+- **StateFlow for UI:** `connectionState` and `authState`. Friendship changes emit the payload-free
+  `friendsChanged` wake event; hosts pull the current rows with `getFriends()`. Pending requests
+  have status `pending_received`.
 - **Inbound wake stream:** `incomingMessages` has exactly one app consumer; push draining observes
   receive activity without consuming it.
 
@@ -83,11 +84,6 @@ POST /v1/attachments        upload blob
 GET  /v1/attachments/{id}   download blob
 ```
 
-The server also exposes `/v1/backup` (POST/GET/HEAD). The kit no longer calls
-it: the recovery/backup assembly was removed along with the legacy message
-model it serialized. `crypto/Bip39.kt` and `RecoveryKeys.kt` remain because the inbound
-`DEVICE_ANNOUNCE` trust path verifies recovery-key signatures.
-
 ## Dependencies
 
 libsignal-client (Signal Protocol JVM), protobuf-kotlin, SQLDelight (JVM SQLite), OkHttp, kotlinx-coroutines, org.json
@@ -100,5 +96,5 @@ Hard-won lessons in `docs/knowledge/`. Read these before touching the codebase:
 - [Server API quirks](docs/knowledge/critical_server_api_quirks.md) — password min 12, listDevices wraps in object, rate limiting, no /health
 - [Signal session building](docs/knowledge/critical_signal_session_building.md) — encrypt() fails without session, ensureSession() pattern is critical
 - [Multi-device queue draining](docs/knowledge/critical_multidevice_queue_draining.md) — befriend() fans out to ALL devices, tests must drain every queue
-- [Protobuf naming](docs/knowledge/critical_protobuf_naming.md) — p2p_public_key → p2PPublicKey, data → data_, ByteString ambiguity
+- [Generated naming](docs/knowledge/critical_protobuf_naming.md) — SQLDelight `data_` and protobuf/Okio ByteString ambiguity
 - [Facade completeness](docs/knowledge/critical_facade_completeness.md) — supported user flows use the facade; adversarial wire tests are explicit exceptions

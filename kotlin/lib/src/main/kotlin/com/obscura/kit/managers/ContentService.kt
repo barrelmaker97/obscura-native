@@ -110,10 +110,7 @@ internal class ContentService(
         }
     }
 
-    suspend fun uploadAttachment(data: ByteArray): Pair<String, Long> {
-        val result = api.uploadAttachment(data)
-        return Pair(result.id, result.expiresAt)
-    }
+    suspend fun uploadAttachment(data: ByteArray): String = api.uploadAttachment(data)
 
     suspend fun downloadAttachment(id: String): ByteArray = api.fetchAttachment(id)
 
@@ -121,14 +118,14 @@ internal class ContentService(
         private const val MAX_CACHE_BYTES = 50L * 1024 * 1024 // 50MB
     }
 
-    suspend fun downloadDecryptedAttachment(id: String, contentKey: ByteArray, nonce: ByteArray, expectedHash: ByteArray? = null): ByteArray {
+    suspend fun downloadDecryptedAttachment(id: String, contentKey: ByteArray, nonce: ByteArray): ByteArray {
         // Check cache first
         val cached = ctx.db.attachmentCacheQueries.selectById(id).executeAsOneOrNull()
         if (cached != null) return cached
 
         // Cache miss — download, decrypt, cache
         val ciphertext = api.fetchAttachment(id)
-        val plaintext = com.obscura.kit.crypto.AttachmentCrypto.decrypt(ciphertext, contentKey, nonce, expectedHash)
+        val plaintext = com.obscura.kit.crypto.AttachmentCrypto.decrypt(ciphertext, contentKey, nonce)
 
         // Store in encrypted DB
         ctx.db.attachmentCacheQueries.insert(id, plaintext, plaintext.size.toLong(), System.currentTimeMillis())

@@ -12,7 +12,7 @@ import java.util.Base64
  * The new device generates a link code (displayed as QR or text),
  * the existing device scans/pastes it, validates, and calls approveLink().
  *
- * Link code contains: deviceId, deviceUUID, Signal identity key, random challenge, timestamp.
+ * Link code contains the pending device id, a random challenge, and a timestamp.
  * Base64-encoded JSON — small enough for a QR code.
  */
 object LinkCode {
@@ -21,8 +21,6 @@ object LinkCode {
 
     data class LinkData(
         val deviceId: String,
-        val deviceUUID: String,
-        val signalIdentityKey: ByteArray,
         val challenge: ByteArray,
         val timestamp: Long
     )
@@ -39,14 +37,12 @@ object LinkCode {
      * Generate a link code for a new device.
      * Display code as QR or copyable text. Keep challenge for verification.
      */
-    fun generate(deviceId: String, deviceUUID: String, signalIdentityKey: ByteArray): GeneratedCode {
+    fun generate(deviceId: String): GeneratedCode {
         val challenge = ByteArray(16)
         SecureRandom().nextBytes(challenge)
 
         val json = JSONObject().apply {
             put("d", deviceId)          // short keys keep QR small
-            put("u", deviceUUID)
-            put("k", Base64.getEncoder().encodeToString(signalIdentityKey))
             put("c", Base64.getEncoder().encodeToString(challenge))
             put("t", System.currentTimeMillis())
         }
@@ -62,8 +58,6 @@ object LinkCode {
         val json = JSONObject(String(Base64.getDecoder().decode(linkCode)))
         return LinkData(
             deviceId = json.getString("d"),
-            deviceUUID = json.getString("u"),
-            signalIdentityKey = Base64.getDecoder().decode(json.getString("k")),
             challenge = Base64.getDecoder().decode(json.getString("c")),
             timestamp = json.getLong("t")
         )
@@ -86,9 +80,6 @@ object LinkCode {
 
             if (data.deviceId.isBlank()) {
                 return ValidationResult(valid = false, error = "Missing deviceId")
-            }
-            if (data.signalIdentityKey.isEmpty()) {
-                return ValidationResult(valid = false, error = "Missing Signal identity key")
             }
             if (data.challenge.size != 16) {
                 return ValidationResult(valid = false, error = "Invalid challenge size")

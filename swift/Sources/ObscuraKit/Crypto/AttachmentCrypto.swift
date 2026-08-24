@@ -5,8 +5,6 @@ public struct EncryptedAttachment: Sendable {
     public let ciphertext: Data
     public let contentKey: Data
     public let nonce: Data
-    public let contentHash: Data
-    public let sizeBytes: Int
 }
 
 /// AES-256-GCM encryption for attachments.
@@ -16,8 +14,8 @@ public struct EncryptedAttachment: Sendable {
 ///   1. Generate random 32-byte content key + 12-byte nonce
 ///   2. Encrypt plaintext with AES-256-GCM
 ///   3. Upload ciphertext to server (server never sees plaintext)
-///   4. Embed contentKey + nonce + hash in the application's encrypted APP_ENTRY payload
-///   5. Recipient downloads ciphertext, decrypts with key + nonce, verifies hash
+///   4. Embed contentKey + nonce in the application's encrypted APP_ENTRY payload
+///   5. Recipient downloads ciphertext and decrypts with authenticated AES-GCM
 public enum AttachmentCrypto {
 
     private static let gcmTagSize = 16
@@ -25,7 +23,6 @@ public enum AttachmentCrypto {
     public static func encrypt(_ plaintext: Data) throws -> EncryptedAttachment {
         let contentKey = SymmetricKey(size: .bits256)
         let nonce = AES.GCM.Nonce()
-        let contentHash = Data(SHA256.hash(data: plaintext))
         let sealed = try AES.GCM.seal(plaintext, using: contentKey, nonce: nonce)
 
         // combined = nonce (12) + ciphertext + tag (16), but we store nonce separately
@@ -33,35 +30,16 @@ public enum AttachmentCrypto {
         return EncryptedAttachment(
             ciphertext: sealed.ciphertext + sealed.tag,
             contentKey: contentKey.withUnsafeBytes { Data($0) },
-            nonce: Data(nonce),
-            contentHash: contentHash,
-            sizeBytes: plaintext.count
+            nonce: Data(nonce)
         )
     }
 
-    public static func decrypt(_ ciphertext: Data, contentKey: Data, nonce: Data, expectedHash: Data? = nil) throws -> Data {
+    public static func decrypt(_ ciphertext: Data, contentKey: Data, nonce: Data) throws -> Data {
         let key = SymmetricKey(data: contentKey)
         // Reconstruct combined representation: nonce + ciphertext + tag
         var combined = Data(nonce)
         combined.append(ciphertext)
         let sealed = try AES.GCM.SealedBox(combined: combined)
-        let plaintext = try AES.GCM.open(sealed, using: key)
-
-        if let expected = expectedHash {
-            let actual = Data(SHA256.hash(data: plaintext))
-            guard actual == expected else { throw AttachmentCryptoError.hashMismatch }
-        }
-
-        return plaintext
-    }
-
-    public enum AttachmentCryptoError: Error, LocalizedError {
-        case hashMismatch
-
-        public var errorDescription: String? {
-            switch self {
-            case .hashMismatch: return "Attachment integrity check failed: hash mismatch"
-            }
-        }
+        return try AES.GCM.open(sealed, using: key)
     }
 }
