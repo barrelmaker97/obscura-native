@@ -83,7 +83,7 @@ final class NewMethodTests: XCTestCase {
         XCTAssertEqual(decrypted1, plaintext)
 
         var tampered = encrypted.ciphertext
-        tampered[0] ^= 0x01
+        tampered[tampered.startIndex] ^= 0x01
         XCTAssertThrowsError(try AttachmentCrypto.decrypt(
             tampered, contentKey: encrypted.contentKey, nonce: encrypted.nonce))
     }

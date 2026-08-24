@@ -35,11 +35,19 @@ public enum AttachmentCrypto {
     }
 
     public static func decrypt(_ ciphertext: Data, contentKey: Data, nonce: Data) throws -> Data {
+        guard ciphertext.count >= gcmTagSize else {
+            throw AttachmentCryptoError.invalidCiphertext
+        }
         let key = SymmetricKey(data: contentKey)
-        // Reconstruct combined representation: nonce + ciphertext + tag
-        var combined = Data(nonce)
-        combined.append(ciphertext)
-        let sealed = try AES.GCM.SealedBox(combined: combined)
+        let sealed = try AES.GCM.SealedBox(
+            nonce: AES.GCM.Nonce(data: nonce),
+            ciphertext: ciphertext.dropLast(gcmTagSize),
+            tag: ciphertext.suffix(gcmTagSize)
+        )
         return try AES.GCM.open(sealed, using: key)
     }
+}
+
+public enum AttachmentCryptoError: Error {
+    case invalidCiphertext
 }
