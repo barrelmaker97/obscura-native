@@ -992,6 +992,13 @@ class ObscuraClient(
         // cannot use another request to replace its locally trusted name or friendship status.
         val existing = friends.get(sourceUserId)
         if (existing != null) {
+            if (existing.status == FriendStatus.PENDING_SENT) {
+                // Crossed requests are mutual consent. Accepting here prevents both peers from
+                // remaining permanently pending when they scan each other's codes.
+                friendshipManager.acceptFriend(sourceUserId, existing.username)
+                logger.log("crossed friend request from $sourceUserId promoted to accepted")
+                return
+            }
             // Already known. The name now comes from our graph, never from their payload. Refresh
             // the device list (that IS ours to learn) and change nothing else.
             friends.updateDevices(sourceUserId, messenger.knownDevicesFor(sourceUserId))

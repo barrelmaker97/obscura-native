@@ -15,6 +15,17 @@ internal class FriendshipManager(
     private val messageSender get() = ctx.messageSender
     suspend fun befriend(targetUserId: String, targetUsername: String) {
         require(targetUserId != session.userId) { "Cannot befriend yourself" }
+
+        val existing = friends.get(targetUserId)
+        when (existing?.status) {
+            FriendStatus.ACCEPTED -> return
+            FriendStatus.PENDING_RECEIVED -> {
+                acceptFriend(targetUserId, existing.username)
+                return
+            }
+            FriendStatus.PENDING_SENT, null -> Unit
+        }
+
         messenger.fetchPreKeyBundles(targetUserId)
 
         // The FriendRequest carries only our display username — a first-contact bootstrap label
@@ -30,7 +41,14 @@ internal class FriendshipManager(
         messageSender.sendToAllDevices(targetUserId, msg)
         // Persist the friend's devices (learned by the prekey fetch above) so the device->user
         // mapping survives a restart: rebuildDeviceMap(getAccepted()) restores it from here.
-        friends.add(targetUserId, targetUsername, FriendStatus.PENDING_SENT, messenger.knownDevicesFor(targetUserId))
+        if (existing == null) {
+            friends.add(
+                targetUserId,
+                targetUsername,
+                FriendStatus.PENDING_SENT,
+                messenger.knownDevicesFor(targetUserId),
+            )
+        }
     }
 
     suspend fun acceptFriend(targetUserId: String, targetUsername: String) {

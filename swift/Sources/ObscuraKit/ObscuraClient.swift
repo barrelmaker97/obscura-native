@@ -1000,12 +1000,25 @@ public class ObscuraClient {
     public func befriend(_ targetUserId: String, username targetUsername: String) async throws {
         _ = try requireMessenger()
 
+        let existing = await friends.getFriend(targetUserId)
+        switch existing?.status {
+        case .accepted:
+            return
+        case .pendingReceived:
+            try await acceptFriend(targetUserId, username: existing?.username ?? targetUsername)
+            return
+        case .pendingSent, .none:
+            break
+        }
+
         var msg = Obscura_Client_V1_ClientMessage()
         msg.friendRequest.username = username ?? ""
         msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
 
         try await sendToAllDevices(targetUserId, msg)
-        try await friends.add(targetUserId, targetUsername, status: .pendingSent)
+        if existing == nil {
+            try await friends.add(targetUserId, targetUsername, status: .pendingSent)
+        }
     }
 
     /// Accept a friend request. Updates status to accepted.
@@ -1809,6 +1822,13 @@ public class ObscuraClient {
             // The payload username is a first-contact label only. A known peer cannot use another
             // request to replace its locally trusted name or friendship status.
             if let existing = await friends.getFriend(sourceUserId) {
+                if existing.status == .pendingSent {
+                    // Crossed requests are mutual consent. Accepting here prevents both peers from
+                    // remaining permanently pending when they scan each other's codes.
+                    try await acceptFriend(sourceUserId, username: existing.username)
+                    logger.log("crossed friend request from \(sourceUserId) promoted to accepted")
+                    return true
+                }
                 // Known peer: the name comes from our graph now, never from their payload. Refresh
                 // the device list (that IS ours to learn — the sending device was just added to the
                 // messenger's map by decrypt) and change nothing else.

@@ -102,6 +102,30 @@ final class FriendStateMachineTests: XCTestCase {
         XCTAssertEqual(bobEntries.count, 1, "Double befriend should not create duplicates")
     }
 
+    func testRescanningAcceptedFriendDoesNotDowngradeEitherSide() async throws {
+        let alice = try await ObscuraTestClient.register()
+        await rateLimitDelay()
+        let bob = try await ObscuraTestClient.register()
+        await rateLimitDelay()
+
+        try await alice.connectWebSocket()
+        try await bob.connectWebSocket()
+        try await alice.befriend(bob.userId!, username: bob.username)
+        _ = try await bob.waitForMessage(timeout: 10)
+        try await bob.acceptFriend(alice.userId!, username: alice.username)
+        _ = try await alice.waitForMessage(timeout: 10)
+
+        try await alice.befriend(bob.userId!, username: bob.username)
+
+        let aliceStatus = await alice.friends.getFriend(bob.userId!)?.status
+        let bobStatus = await bob.friends.getFriend(alice.userId!)?.status
+        XCTAssertEqual(aliceStatus, .accepted)
+        XCTAssertEqual(bobStatus, .accepted)
+
+        alice.disconnectWebSocket()
+        bob.disconnectWebSocket()
+    }
+
     // MARK: - Friend request while offline arrives on connect
 
     func testFriendRequestArrivesAfterConnect() async throws {
