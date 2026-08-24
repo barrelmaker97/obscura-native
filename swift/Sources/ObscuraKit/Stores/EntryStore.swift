@@ -23,7 +23,7 @@ public struct StoredEntry: Sendable, Equatable {
 /// Raw storage for application entries (`KIT_API.md` §8.1).
 ///
 /// `InboxStore` is how messages arrive; this is where the app keeps what it made of them. The API is
-/// `put` / `all` / `delete`. `put` is a blind upsert; the app resolves merge before writing. This
+/// `put` / `all`. `put` is a blind upsert; the app resolves merge before writing. This
 /// store has no schema parser, query layer, merge engine, or expiry policy.
 public actor EntryStore {
     private let db: DatabaseQueue
@@ -76,21 +76,6 @@ public actor EntryStore {
                     authorDeviceId: row["author_device_id"]
                 )
             }
-        }
-    }
-
-    /// Remove an entry outright.
-    ///
-    /// A local hard delete, not a synchronized tombstone.
-    ///
-    /// - Note: Kotlin's `EntryStore.delete` soft-deletes, because that table carries a `deleted`
-    ///   column and its `selectByModel` filters on it, while `model_entries` here has no such column.
-    ///   The observable behaviour is identical — the entry stops appearing in `all` — and the app
-    ///   cannot tell the difference through the bridge.
-    public func delete(model: String, id: String) async throws {
-        try await db.write { db in
-            try db.execute(sql: "DELETE FROM model_entries WHERE model_name = ? AND id = ?",
-                           arguments: [model, id])
         }
     }
 

@@ -8,6 +8,7 @@ import okhttp3.*
 import okio.ByteString
 import xyz.obscura.server.contracts.ObscuraProtocol.*
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 enum class GatewayState {
     DISCONNECTED,
@@ -38,6 +39,7 @@ class GatewayConnection(
     private var reconnectJob: Job? = null
     private var reconnectAttempts = 0
     private var shouldReconnect = true
+    private val connectionGeneration = AtomicLong()
 
     // Completed on onOpen, completed exceptionally on onFailure/onClosed. Lets
     // connect() suspend until the socket is actually open (or has failed) instead
@@ -76,10 +78,11 @@ class GatewayConnection(
 
         val signal = CompletableDeferred<Unit>()
         openSignal = signal
+        val generation = connectionGeneration.incrementAndGet()
         try {
             val ticket = api.fetchGatewayTicket()
             val url = api.getGatewayUrl(ticket)
-            openWebSocket(url)
+            openWebSocket(url, generation)
             // Suspend until the socket truly opens (onOpen) or fails (onFailure/
             // onClosed). This makes "connect() returned" mean "connected", and
             // lets the listener callbacks be the single owner of the state flow.
@@ -94,6 +97,7 @@ class GatewayConnection(
 
     fun disconnect() {
         shouldReconnect = false
+        connectionGeneration.incrementAndGet()
         reconnectJob?.cancel()
         reconnectJob = null
         openSignal?.completeExceptionally(IllegalStateException("disconnected during connect"))
@@ -114,17 +118,22 @@ class GatewayConnection(
         webSocket?.send(ByteString.of(*frame.toByteArray()))
     }
 
-    private fun openWebSocket(url: String) {
+    private fun openWebSocket(url: String, generation: Long) {
         val request = Request.Builder().url(url).build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (generation != connectionGeneration.get()) {
+                    webSocket.close(1000, "Superseded connection")
+                    return
+                }
                 setState(GatewayState.CONNECTED)
                 reconnectAttempts = 0
                 openSignal?.complete(Unit)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                if (generation != connectionGeneration.get()) return
                 try {
                     val frame = WebSocketFrame.parseFrom(bytes.toByteArray())
                     when {
@@ -142,12 +151,16 @@ class GatewayConnection(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (generation != connectionGeneration.get()) return
+                this@GatewayConnection.webSocket = null
                 setState(GatewayState.DISCONNECTED)
                 openSignal?.completeExceptionally(t)
                 if (shouldReconnect) scheduleReconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (generation != connectionGeneration.get()) return
+                this@GatewayConnection.webSocket = null
                 setState(GatewayState.DISCONNECTED)
                 openSignal?.completeExceptionally(
                     IllegalStateException("gateway closed before open: $code $reason")

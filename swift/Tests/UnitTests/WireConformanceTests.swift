@@ -7,11 +7,9 @@ import SwiftProtobuf
 /// `../protocol/conformance/wire.json` (NATIVE_CONTRACT §3). Both platforms run the
 /// same file.
 ///
-/// Pins the enum <-> app-facing-form mappings introduced by the v2 client.proto
-/// renumbering (which a single mis-copied case would silently break
-/// cross-platform) via the production `WireCodec`, and that a `ModelSync`
-/// round-trips through the wire by VALUE. Byte-canonicity is intentionally NOT
-/// asserted (SPEC §3.3).
+/// Pins the signal enum <-> app-facing-form mapping via the production
+/// `WireCodec`, and that a `ModelSync` round-trips through the wire by VALUE.
+/// Byte-canonicity is intentionally NOT asserted (SPEC §3.3).
 ///
 /// The `wire`-name → generated-enum-case maps below are a test harness:
 /// SwiftProtobuf does not expose the proto enum names, so we bind them once here.
@@ -19,20 +17,13 @@ import SwiftProtobuf
 final class WireConformanceTests: XCTestCase {
 
     private let payloadByWire: [String: Obscura_Client_V1_ClientMessage.OneOf_Payload] = [
-        "text": .text(Obscura_Client_V1_TextMessage()),
         "friend_request": .friendRequest(Obscura_Client_V1_FriendRequest()),
         "model_sync": .modelSync(Obscura_Client_V1_ModelSync()),
         "model_signal": .modelSignal(Obscura_Client_V1_ModelSignal()),
     ]
-    private let opByWire: [String: Obscura_Client_V1_ModelSync.Op] = [
-        "OP_CREATE": .create,
-        "OP_UPDATE": .update,
-        "OP_DELETE": .delete,
-    ]
     private let kindByWire: [String: Obscura_Client_V1_SignalKind] = [
         "SIGNAL_KIND_TYPING": .typing,
         "SIGNAL_KIND_STOPPED_TYPING": .stoppedTyping,
-        "SIGNAL_KIND_READ": .read,
     ]
 
     func testWireConformance() throws {
@@ -42,13 +33,6 @@ final class WireConformanceTests: XCTestCase {
             let wire = m["wire"] as? String ?? "", app = m["app"] as? String ?? ""
             guard let p = payloadByWire[wire] else { XCTFail("unmapped wire messageType \(wire)"); continue }
             XCTAssertEqual(WireCodec.decodeMessageType(p), app, "messageType \(wire) -> \(app)")
-        }
-
-        for m in (v["modelSyncOps"] as? [[String: Any]] ?? []) {
-            let wire = m["wire"] as? String ?? "", app = m["app"] as? String ?? ""
-            guard let op = opByWire[wire] else { XCTFail("unmapped wire op \(wire)"); continue }
-            XCTAssertEqual(WireCodec.decodeOp(op), app, "decode \(wire)")
-            XCTAssertEqual(WireCodec.encodeOp(app), op, "encode \(app)")
         }
 
         for m in (v["signalKinds"] as? [[String: Any]] ?? []) {
@@ -67,23 +51,19 @@ final class WireConformanceTests: XCTestCase {
     private func roundTrip(_ ms: [String: Any], name: String) throws {
         let model = ms["model"] as? String ?? ""
         let id = ms["id"] as? String ?? ""
-        let appOp = ms["op"] as? String ?? ""
         let ts = conformanceUInt64(ms["timestamp"])
         let dataMap = ms["data"] as? [String: Any] ?? [:]
 
         var proto = Obscura_Client_V1_ModelSync()
         proto.model = model
         proto.id = id
-        proto.op = WireCodec.encodeOp(appOp)
         proto.timestamp = ts
         proto.data = try JSONSerialization.data(withJSONObject: dataMap)
-        proto.authorDeviceID = "d0"
 
         let decoded = try Obscura_Client_V1_ModelSync(serializedData: proto.serializedData())
 
         XCTAssertEqual(decoded.model, model, "[\(name)] model")
         XCTAssertEqual(decoded.id, id, "[\(name)] id")
-        XCTAssertEqual(WireCodec.decodeOp(decoded.op), appOp, "[\(name)] op")
         XCTAssertEqual(decoded.timestamp, ts, "[\(name)] timestamp")
         // data round-trips by VALUE (parsed map), not bytes — key order is irrelevant.
         let decodedData = (try JSONSerialization.jsonObject(with: decoded.data) as? [String: Any]) ?? [:]

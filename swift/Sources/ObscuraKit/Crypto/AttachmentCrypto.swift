@@ -16,7 +16,7 @@ public struct EncryptedAttachment: Sendable {
 ///   1. Generate random 32-byte content key + 12-byte nonce
 ///   2. Encrypt plaintext with AES-256-GCM
 ///   3. Upload ciphertext to server (server never sees plaintext)
-///   4. Send contentKey + nonce + hash to recipient via CONTENT_REFERENCE (Signal-encrypted)
+///   4. Embed contentKey + nonce + hash in the application's encrypted MODEL_SYNC payload
 ///   5. Recipient downloads ciphertext, decrypts with key + nonce, verifies hash
 public enum AttachmentCrypto {
 

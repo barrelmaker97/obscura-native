@@ -61,8 +61,7 @@ When the new device receives `DEVICE_LINK_APPROVAL`:
 After this, the new device can use the full API — send, inbox, entries, everything.
 
 Friend data reaches the new device through `friendsExport` on the approval
-message itself. There is no separate `SYNC_BLOB` push: it carried the same
-friend list and nothing else.
+message itself. There is no separate state-transfer message.
 
 ### Auth states
 

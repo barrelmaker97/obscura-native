@@ -28,17 +28,14 @@ public enum LoginScenario: Sendable {
 
 public struct ReceivedMessage: Sendable {
     public let type: String  // app-facing message kind, e.g. "MODEL_SYNC"; "" if unset
-    public let text: String
-    public let username: String
-    public let accepted: Bool
-    public let sourceUserId: String
-    public let senderDeviceId: String?
-    public let timestamp: UInt64
-    public let rawBytes: Data
-    /// For MODEL_SYNC messages: the affected model name (e.g. "story", "profile").
-    /// nil for non-sync message types. Lets the bridge emit a model-accurate
-    /// `messageReceived` event instead of hardcoding "directMessage".
+    let username: String
+    let sourceUserId: String
+    let senderDeviceId: String?
+    let timestamp: UInt64
+    /// For MODEL_SYNC messages: the opaque model key; nil for non-sync types.
     public let model: String?
+    /// Test-only access to the decoded wire message. Applications drain the durable inbox.
+    let rawBytes: Data
 }
 
 private actor ProcessedEnvelopeTracker {
@@ -999,23 +996,34 @@ public class ObscuraClient {
 
     /// Send a friend request. Stores the target with their username so the UI can display it.
     ///
-    /// - Note: A second device does not learn about friends added after it was
-    ///   linked. It receives the friend graph only at link time through
-    ///   `SYNC_BLOB`; `DEVICE_LINK_APPROVAL` is not handled on receive.
+    /// - Note: A second device does not learn about friends added after it was linked.
     public func befriend(_ targetUserId: String, username targetUsername: String) async throws {
         _ = try requireMessenger()
+
+        let existing = await friends.getFriend(targetUserId)
+        switch existing?.status {
+        case .accepted:
+            return
+        case .pendingReceived:
+            try await acceptFriend(targetUserId, username: existing?.username ?? targetUsername)
+            return
+        case .pendingSent, .none:
+            break
+        }
 
         var msg = Obscura_Client_V1_ClientMessage()
         msg.friendRequest.username = username ?? ""
         msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
 
         try await sendToAllDevices(targetUserId, msg)
-        try await friends.add(targetUserId, targetUsername, status: .pendingSent)
+        if existing == nil {
+            try await friends.add(targetUserId, targetUsername, status: .pendingSent)
+        }
     }
 
     /// Accept a friend request. Updates status to accepted.
     ///
-    /// - Note: no FRIEND_SYNC to own devices — see ``befriend(_:username:)``.
+    /// - Note: friendship changes are not copied to own devices after link time.
     public func acceptFriend(_ targetUserId: String, username targetUsername: String) async throws {
         _ = try requireMessenger()
 
@@ -1025,7 +1033,7 @@ public class ObscuraClient {
         msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
 
         try await sendToAllDevices(targetUserId, msg)
-        await friends.updateStatus(targetUserId, .accepted)
+        try await friends.updateStatus(targetUserId, .accepted)
     }
 
     /// Announce the current device list to all friends.
@@ -1146,7 +1154,7 @@ public class ObscuraClient {
 
     /// Validate a link code and approve the device link.
     /// The existing device calls this after scanning the QR code.
-    /// Validates the code, then sends DEVICE_LINK_APPROVAL + SYNC_BLOB + DEVICE_ANNOUNCE.
+    /// Validates the code, then sends DEVICE_LINK_APPROVAL + DEVICE_ANNOUNCE.
     public func validateAndApproveLink(_ linkCodeString: String) async throws {
         let result = DeviceLink.validateLinkCode(linkCodeString)
 
@@ -1171,7 +1179,7 @@ public class ObscuraClient {
             let newDevice = OwnDevice(deviceUUID: code.deviceUUID, deviceId: code.deviceId, deviceName: code.deviceId)
             await devices.addOwnDevice(newDevice)
 
-            // Approve: send DEVICE_LINK_APPROVAL + SYNC_BLOB + announce
+            // Approve the new device, then announce the updated device list.
             try await approveLink(newDeviceId: code.deviceId, challengeResponse: challenge)
 
         case .expired:
@@ -1215,25 +1223,11 @@ public class ObscuraClient {
 
     // MARK: - Encrypted Attachments
 
-    /// Encrypt plaintext, upload ciphertext, send CONTENT_REFERENCE to friend. Throws if not friends.
-    public func sendEncryptedAttachment(to friendUserId: String, plaintext: Data, mimeType: String = "application/octet-stream") async throws {
-        guard await friends.isFriend(friendUserId) else { throw ObscuraError.notFriends(friendUserId) }
-        let encrypted = try AttachmentCrypto.encrypt(plaintext)
-        let result = try await api.uploadAttachment(encrypted.ciphertext)
-        await rateLimitDelay()
-        try await sendAttachment(
-            to: friendUserId, attachmentId: result.id,
-            contentKey: encrypted.contentKey, nonce: encrypted.nonce,
-            mimeType: mimeType, sizeBytes: encrypted.sizeBytes
-        )
-    }
-
     /// Encrypt plaintext and upload the ciphertext, returning the reference triple.
-    /// Unlike `sendEncryptedAttachment`, this does NOT send a CONTENT_REFERENCE to a
-    /// friend — the caller embeds `{id, contentKey, nonce}` in a synced model entry
-    /// (e.g. a Pix or Story) whose sync carries the reference. Mirrors the Kotlin
-    /// `uploadAttachment` primitive; returns key material so the bridge needn't reach
-    /// into `AttachmentCrypto` directly. Pair with `downloadDecryptedAttachment`.
+    /// The caller embeds `{id, contentKey, nonce}` in a synced model entry whose sync carries the
+    /// reference. Mirrors the Kotlin `uploadAttachment` primitive; returns key material so the
+    /// bridge needn't reach into `AttachmentCrypto` directly. Pair with
+    /// `downloadDecryptedAttachment`.
     public func uploadAttachment(_ plaintext: Data) async throws -> (id: String, contentKey: Data, nonce: Data) {
         let encrypted = try AttachmentCrypto.encrypt(plaintext)
         let result = try await api.uploadAttachment(encrypted.ciphertext)
@@ -1252,22 +1246,6 @@ public class ObscuraClient {
         let plaintext = try AttachmentCrypto.decrypt(ciphertext, contentKey: contentKey, nonce: nonce, expectedHash: expectedHash)
         await attachmentCache?.put(id, plaintext: plaintext)
         return plaintext
-    }
-
-    /// Send a CONTENT_REFERENCE message to a friend (attachment already uploaded). Throws if not friends.
-    public func sendAttachment(to friendUserId: String, attachmentId: String, contentKey: Data, nonce: Data, mimeType: String, sizeBytes: Int) async throws {
-        guard await friends.isFriend(friendUserId) else { throw ObscuraError.notFriends(friendUserId) }
-        var ref = Obscura_Client_V1_ContentReference()
-        ref.attachmentID = attachmentId
-        ref.contentKey = contentKey
-        ref.nonce = nonce
-        ref.contentType = mimeType
-        ref.sizeBytes = UInt64(sizeBytes)
-
-        var msg = Obscura_Client_V1_ClientMessage()
-        msg.contentReference = ref
-        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
-        try await sendToAllDevices(friendUserId, msg)
     }
 
     /// Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit,
@@ -1293,17 +1271,14 @@ public class ObscuraClient {
         to recipientUserIds: [String],
         modelKey: String,
         entryId: String,
-        op: String = "CREATE",
         sentAt: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000),
         payload: Data
     ) async throws {
         var sync = Obscura_Client_V1_ModelSync()
         sync.model = modelKey
         sync.id = entryId
-        sync.op = WireCodec.encodeOp(op)
         sync.timestamp = sentAt
         sync.data = payload
-        sync.authorDeviceID = deviceId ?? ""
 
         var msg = Obscura_Client_V1_ClientMessage()
         msg.modelSync = sync
@@ -1423,7 +1398,7 @@ public class ObscuraClient {
         case friendsUpdated([Friend])
         case connectionChanged(ConnectionState)
         case authChanged(AuthState)
-        case messageReceived(model: String, entryId: String)
+        case messageReceived(model: String)
         case typingChanged(conversationId: String, typers: [String])
         case authFailed(reason: String)
         case debugLog(String)
@@ -1450,12 +1425,15 @@ public class ObscuraClient {
                     continuation.yield(.authChanged(state))
                 }
             }
-            // Incoming messages — surface the real model name for MODEL_SYNC so
-            // story/profile/pix syncs re-query, not just directMessage.
+            // Incoming entries carry the opaque model key declared on MODEL_SYNC.
             let msgTask = Task {
                 for await event in events() {
                     if event.type == "MODEL_SYNC" {
-                        continuation.yield(.messageReceived(model: event.model ?? "directMessage", entryId: ""))
+                        guard let model = event.model, !model.isEmpty else {
+                            logger.log("RECV MODEL_SYNC missing model; event suppressed")
+                            continue
+                        }
+                        continuation.yield(.messageReceived(model: model))
                     }
                 }
             }
@@ -1569,7 +1547,7 @@ public class ObscuraClient {
 
     /// Wait for next incoming message. Uses buffered queue — messages processed by
     /// the envelope loop are queued here, so timing doesn't matter.
-    public func waitForMessage(timeout: TimeInterval = 10) async throws -> ReceivedMessage {
+    func waitForMessage(timeout: TimeInterval = 10) async throws -> ReceivedMessage {
         // Check buffer first
         if !messageQueue.isEmpty {
             return messageQueue.removeFirst()
@@ -1649,6 +1627,7 @@ public class ObscuraClient {
         await rateLimitDelay()
 
         let msgData = try msg.serializedData()
+        var queued = 0
         for bundle in bundles {
             if let excluded = excludingDeviceId, bundle.deviceId == excluded { continue }
             do {
@@ -1659,8 +1638,15 @@ public class ObscuraClient {
             }
             let targetDeviceId = bundle.deviceId
             try await messenger.queueMessage(targetDeviceId: targetDeviceId, clientMessageData: msgData, targetUserId: targetUserId)
+            queued += 1
         }
-        _ = try await messenger.flushMessages()
+        guard queued > 0 else {
+            throw ObscuraError.sendFailed("No usable devices for \(targetUserId)")
+        }
+        let result = try await messenger.flushMessages()
+        guard result.sent > 0 else {
+            throw ObscuraError.sendFailed("No submissions sent to \(targetUserId)")
+        }
     }
 
     // MARK: - Internal: Envelope Loop
@@ -1762,7 +1748,6 @@ public class ObscuraClient {
             // Emit to event subscribers
             let received = ReceivedMessage(
                 type: WireCodec.decodeMessageType(clientMsg.payload),
-                text: clientMsg.text.text,
                 username: {
                     switch clientMsg.payload {
                     case .friendRequest?: return clientMsg.friendRequest.username
@@ -1770,18 +1755,14 @@ public class ObscuraClient {
                     default: return ""
                     }
                 }(),
-                accepted: {
-                    if case .friendResponse? = clientMsg.payload { return clientMsg.friendResponse.accepted }
-                    return false
-                }(),
                 sourceUserId: sourceUserId,
                 senderDeviceId: senderDeviceId,
                 timestamp: clientMsg.timestamp,
-                rawBytes: Data(plaintext),
                 model: {
                     if case .modelSync? = clientMsg.payload { return clientMsg.modelSync.model }
                     return nil
-                }()
+                }(),
+                rawBytes: Data(plaintext)
             )
             if isNew {
                 emit(received)
@@ -1820,15 +1801,11 @@ public class ObscuraClient {
     ) async throws -> Bool {
         NSLog("[ObscuraKit] routeMessage payload=%@ from=%@", WireCodec.decodeMessageType(msg.payload), String(sourceUserId.prefix(8)))
 
-        var isNew = true
         switch classify(msg.payload) {
         case .inboxed:
-            isNew = try await inboxMessage(
+            return try await inboxMessage(
                 msg, sourceUserId: sourceUserId, senderDeviceId: senderDeviceId,
                 envelopeId: envelopeId)
-            // The inbox row is the delivery and has committed. MODEL_SYNC falls through only to
-            // clear ephemeral typing state after a real message arrives.
-            if case .modelSync? = msg.payload {} else { return isNew }
 
         case .unimplemented:
             // Diagnose and acknowledge declared unsupported arms so they cannot wedge the queue.
@@ -1845,6 +1822,13 @@ public class ObscuraClient {
             // The payload username is a first-contact label only. A known peer cannot use another
             // request to replace its locally trusted name or friendship status.
             if let existing = await friends.getFriend(sourceUserId) {
+                if existing.status == .pendingSent {
+                    // Crossed requests are mutual consent. Accepting here prevents both peers from
+                    // remaining permanently pending when they scan each other's codes.
+                    try await acceptFriend(sourceUserId, username: existing.username)
+                    logger.log("crossed friend request from \(sourceUserId) promoted to accepted")
+                    return true
+                }
                 // Known peer: the name comes from our graph now, never from their payload. Refresh
                 // the device list (that IS ours to learn — the sending device was just added to the
                 // messenger's map by decrypt) and change nothing else.
@@ -1870,7 +1854,7 @@ public class ObscuraClient {
                 if let existing, existing.status == .pendingSent {
                     // Promote in place: updateStatus keeps the name WE recorded when we sent the
                     // request. The payload username is not consulted (SPEC §0.5).
-                    await friends.updateStatus(sourceUserId, .accepted)
+                    try await friends.updateStatus(sourceUserId, .accepted)
                 } else {
                     logger.log("ignoring unsolicited FRIEND_RESPONSE from \(sourceUserId) "
                         + "(local status=\(existing?.status.rawValue ?? "none"); expected pendingSent)")
@@ -1933,11 +1917,6 @@ public class ObscuraClient {
             try await friends.updateDevices(sourceUserId, devices: deviceInfos,
                                             timestamp: clampFutureTimestamp(announce.timestamp))
 
-        case .modelSync?:
-            // Clear all typing indicators — a real message arrived. The entry itself is already in
-            // the inbox (see `.inboxed` above); this case exists only for the signal side effect.
-            await SignalStoreRegistry.shared.store.clearAll()
-
         case .modelSignal?:
             await handleModelSignal(msg, sourceUserId: sourceUserId, senderDeviceId: senderDeviceId)
 
@@ -1955,7 +1934,7 @@ public class ObscuraClient {
                 "\(WireCodec.decodeMessageType(msg.payload)) is classified kit-internal but this kit "
                 + "has no handler; refusing to ack it away")
         }
-        return isNew
+        return true
     }
 
     internal func handleModelSignal(
@@ -2035,11 +2014,6 @@ public class ObscuraClient {
                 // ModelSync-derived, so nil for an unknown arm — there is nothing to derive from.
                 modelKey: isModelSync ? sync.model : nil,
                 entryId: isModelSync ? sync.id : nil,
-                // `WireCodec.decodeOp`, not the raw enum: the inbox is read by the app across a
-                // bridge, so this must be the app-facing CREATE/UPDATE/DELETE that §3.1 specifies.
-                // Interpolating the generated enum would give
-                // Swift's `opCreate` against Kotlin's `OP_CREATE` — one wire, two spellings.
-                op: isModelSync ? WireCodec.decodeOp(sync.op) : nil,
                 sentAt: isModelSync ? clampFutureTimestamp(sync.timestamp) : nil,
                 // Opaque bytes. For an unknown arm this is the whole serialized message, because the
                 // kit cannot know which sub-field would have been the payload.

@@ -92,8 +92,8 @@ def _unique_names(rep: Report, where: str, cases: list) -> None:
 def check_wire(rep: Report, doc: dict) -> None:
     f = "wire.json"
     _check_common(rep, f, doc, "wire")
-    rep.only_keys(f, doc, {"version", "kind", "description", "messageTypes", "modelSyncOps", "signalKinds", "roundTrip"})
-    for mapping in ("messageTypes", "modelSyncOps", "signalKinds"):
+    rep.only_keys(f, doc, {"version", "kind", "description", "messageTypes", "signalKinds", "roundTrip"})
+    for mapping in ("messageTypes", "signalKinds"):
         if rep.is_nonempty_list(f, doc, mapping):
             for i, m in enumerate(doc[mapping]):
                 w = f"{f} {mapping}[{i}]"
@@ -114,9 +114,9 @@ def check_wire(rep: Report, doc: dict) -> None:
             rep.is_str(w, rt, "name")
             if rep.is_dict(w, rt, "modelSync"):
                 ms = rt["modelSync"]
+                rep.only_keys(w + " modelSync", ms, {"model", "id", "timestamp", "data"})
                 rep.is_str(w + " modelSync", ms, "model")
                 rep.is_str(w + " modelSync", ms, "id")
-                rep.is_str(w + " modelSync", ms, "op")
                 rep.is_dict(w + " modelSync", ms, "data")
                 if not isinstance(ms.get("timestamp"), (int, float)) or isinstance(ms.get("timestamp"), bool):
                     rep.err(w + " modelSync", f"'timestamp' must be a number, got {ms.get('timestamp')!r}")

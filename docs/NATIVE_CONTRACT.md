@@ -268,26 +268,23 @@ kind and the two content enums (`EncryptedMessage.Type` is transport, not conten
 The message kind is the `ClientMessage.payload` **oneof**: exactly one arm is
 set, and *which* arm is set is the message type — there is no separate `Type`
 enum to keep in sync (a kind/content mismatch is unrepresentable). The app-facing
-type string is the oneof field name upper-snake-cased (`text` → `"TEXT"`,
-`model_sync` → `"MODEL_SYNC"`).
+type string is the oneof field name upper-snake-cased (`friend_request` →
+`"FRIEND_REQUEST"`, `model_sync` → `"MODEL_SYNC"`).
 
-The app never sees the `OP_`/`SIGNAL_KIND_` wire prefixes on the two enums that
-remain. A kit MUST map:
+The app never sees the `SIGNAL_KIND_` wire prefix. A kit MUST map:
 
 | Wire form | App-facing form | Rule |
 |---|---|---|
 | `ClientMessage.payload` arm e.g. `model_sync` | `"MODEL_SYNC"` | oneof field name, upper-snake |
-| `ModelSync.Op` e.g. `OP_CREATE` | `"CREATE"` | strip the `OP_` prefix |
 | `SignalKind` e.g. `SIGNAL_KIND_TYPING` | `"typing"` | mapped name (see table) |
 
 An unset payload maps to `""` (ignored). `*_UNSPECIFIED` (and any unrecognized
-value) decodes to the safe default: `Op` → `CREATE`; `SignalKind` → ignored.
-These mappings MUST live in one place per kit (a `WireCodec`), never duplicated,
-so they cannot drift within a kit.
+value) for `SignalKind` is ignored. These mappings MUST live in one place per
+kit (a `WireCodec`), never duplicated, so they cannot drift within a kit.
 
 ### 3.2 Round-trip
 
-`encode(ModelSync) → decode` MUST preserve `model`, `id`, `op`, `timestamp`, and
+`encode(ModelSync) → decode` MUST preserve `model`, `id`, `timestamp`, and
 the `data` **value**. `data` is model-defined JSON carried in a proto `bytes`
 field; equality is by parsed value, so key order is irrelevant.
 

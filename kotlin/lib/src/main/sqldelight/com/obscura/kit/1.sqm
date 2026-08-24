@@ -1,5 +1,0 @@
--- Migration 1 -> 2.
---
--- Establish SQLDelight's migration mechanism. Existing databases require an explicit .sqm step;
--- changing only a .sq CREATE statement updates fresh installs but does not migrate stored schemas.
-CREATE INDEX IF NOT EXISTS friend_status_idx ON Friend(status);

@@ -41,14 +41,15 @@ import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-data class ReceivedMessage(
+class ReceivedMessage internal constructor(
     val type: String,
-    val text: String = "",
-    val username: String = "",
-    val accepted: Boolean = false,
-    val sourceUserId: String = "",
-    val senderDeviceId: String? = null,
-    val raw: ClientMessage? = null
+    internal val username: String = "",
+    internal val sourceUserId: String = "",
+    internal val senderDeviceId: String? = null,
+    /** For MODEL_SYNC messages: the opaque model key; null for non-sync types. */
+    val model: String? = null,
+    /** Test-only access to the decoded wire message. Applications drain the durable inbox. */
+    internal val raw: ClientMessage? = null,
 )
 
 /**
@@ -768,7 +769,7 @@ class ObscuraClient(
                     val msg = decrypted.clientMessage
                     val sourceUserId = decrypted.sourceUserId
 
-                    log("RECV ${msg.payloadCase.name} from=${sourceUserId.take(8)} device=${decrypted.senderDeviceId.take(8)} text=${msg.text.text.take(40)}")
+                    log("RECV ${msg.payloadCase.name} from=${sourceUserId.take(8)} device=${decrypted.senderDeviceId.take(8)}")
 
                     // 2. PERSIST (durable). routeMessage's handlers write to the SQLDelight store
                     // (e.g. inbox.put; friends.add). This is the source of truth. If it throws, we
@@ -790,11 +791,12 @@ class ObscuraClient(
                     }
                     val received = ReceivedMessage(
                         type = WireCodec.decodeType(msg.payloadCase),
-                        text = msg.text.text,
                         username = username,
-                        accepted = msg.payloadCase == ClientMessage.PayloadCase.FRIEND_RESPONSE && msg.friendResponse.accepted,
                         sourceUserId = sourceUserId,
                         senderDeviceId = decrypted.senderDeviceId,
+                        model = msg.takeIf {
+                            it.payloadCase == ClientMessage.PayloadCase.MODEL_SYNC
+                        }?.modelSync?.model?.takeIf(String::isNotBlank),
                         raw = msg
                     )
 
@@ -884,11 +886,6 @@ class ObscuraClient(
         when (classify(msg.payloadCase)) {
             PayloadClass.INBOXED -> return inboxMessage(msg, sourceUserId, senderDeviceId, envelopeId)
 
-            PayloadClass.UNIMPLEMENTED ->
-                // Diagnosed and acknowledged so a declared unsupported arm cannot wedge the queue.
-                log("RECV UNIMPLEMENTED arm=${msg.payloadCase.name} from=${sourceUserId.take(8)} " +
-                    "(dropped and acked — see KIT_API.md §4.2)")
-
             PayloadClass.DROPPABLE, PayloadClass.KIT_INTERNAL -> when (msg.payloadCase) {
                 ClientMessage.PayloadCase.FRIEND_REQUEST -> handleFriendRequest(msg, sourceUserId)
                 ClientMessage.PayloadCase.FRIEND_RESPONSE -> handleFriendResponse(msg, sourceUserId)
@@ -944,11 +941,6 @@ class ObscuraClient(
                 // ModelSync-derived, so null for an unknown arm — there is nothing to derive from.
                 modelKey = if (isModelSync) sync.model else null,
                 entryId = if (isModelSync) sync.id else null,
-                // `WireCodec.decodeOp`, not the raw enum name: the inbox is read by the app
-                // across a bridge, so this must be the app-facing CREATE/UPDATE/DELETE that
-                // KIT_API.md §3.1 specifies. `sync.op.name`
-                // gives the PROTO spelling `OP_CREATE`, which no other surface uses.
-                op = if (isModelSync) WireCodec.decodeOp(sync.op).name else null,
                 sentAt = if (isModelSync) clampFutureTimestamp(sync.timestamp) else null,
                 // Opaque bytes. For an unknown arm this is the whole serialized message, because the
                 // kit cannot know which sub-field would have been the payload.
@@ -1000,6 +992,13 @@ class ObscuraClient(
         // cannot use another request to replace its locally trusted name or friendship status.
         val existing = friends.get(sourceUserId)
         if (existing != null) {
+            if (existing.status == FriendStatus.PENDING_SENT) {
+                // Crossed requests are mutual consent. Accepting here prevents both peers from
+                // remaining permanently pending when they scan each other's codes.
+                friendshipManager.acceptFriend(sourceUserId, existing.username)
+                logger.log("crossed friend request from $sourceUserId promoted to accepted")
+                return
+            }
             // Already known. The name now comes from our graph, never from their payload. Refresh
             // the device list (that IS ours to learn) and change nothing else.
             friends.updateDevices(sourceUserId, messenger.knownDevicesFor(sourceUserId))
@@ -1118,7 +1117,10 @@ class ObscuraClient(
             // the device from the decrypted session, the display name from the friend graph.
             // authorDeviceId is the sending device UUID proven by the session
             // MAC; a user id in that field would be a false claim.
-            val authorDeviceId = senderDeviceId ?: "unknown"
+            val authorDeviceId = senderDeviceId ?: run {
+                log("SIGNAL DROPPED (inbound): authenticated sender device is missing")
+                return
+            }
             val senderUsername = friends.getAccepted().find { it.userId == sourceUserId }?.username ?: sourceUserId
             val data = mapOf<String, Any?>(
                 "conversationId" to sig.contextId,
@@ -1184,10 +1186,7 @@ class ObscuraClient(
 
     // Attachment convenience methods resolve friend usernames. App entry sends use explicit
     // recipient user ids through `send` (SPEC §0.4).
-    suspend fun sendAttachment(friendUsername: String, attachmentId: String, contentKey: ByteArray, nonce: ByteArray, mimeType: String, sizeBytes: Long) =
-        messagingManager.sendAttachment(friendUsername, attachmentId, contentKey, nonce, mimeType, sizeBytes)
-    suspend fun sendEncryptedAttachment(friendUsername: String, plaintext: ByteArray, mimeType: String = "application/octet-stream") =
-        messagingManager.sendEncryptedAttachment(friendUsername, plaintext, mimeType)
+
     /**
      * Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit,
      * paired with [inbox] on the receive side and [entries] for local storage.
@@ -1200,10 +1199,9 @@ class ObscuraClient(
         recipientUserIds: List<String>,
         modelKey: String,
         entryId: String,
-        op: String = "CREATE",
         sentAt: Long = System.currentTimeMillis(),
         payload: ByteArray,
-    ) = messagingManager.sendEntry(recipientUserIds, modelKey, entryId, op, sentAt, payload)
+    ) = messagingManager.sendEntry(recipientUserIds, modelKey, entryId, sentAt, payload)
 
     // ── Ephemeral signals (typing, read receipts) ────────────────────────────────────────────
     //

@@ -61,7 +61,7 @@ final class ObservationTests: XCTestCase {
         try await Task.sleep(nanoseconds: 100_000_000)
 
         // Update status to accepted — should trigger emission
-        await actor.updateStatus("bob-id", .accepted)
+        try await actor.updateStatus("bob-id", .accepted)
 
         await fulfillment(of: [expectation], timeout: 5)
         task.cancel()

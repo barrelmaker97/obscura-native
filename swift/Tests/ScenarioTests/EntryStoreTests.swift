@@ -90,27 +90,6 @@ final class EntryStoreTests: XCTestCase {
         XCTAssertEqual(all.first?.data, payload)
     }
 
-    func testDeleteRemovesAnEntryFromAll() async throws {
-        let store = try makeStore()
-        try await store.put(model: "story", entry: entry("s1"))
-        try await store.put(model: "story", entry: entry("s2"))
-
-        try await store.delete(model: "story", id: "s1")
-
-        let all = try await store.all(model: "story")
-        XCTAssertEqual(all.map(\.id), ["s2"])
-    }
-
-    func testDeletingSomethingThatIsNotThereIsANoOp() async throws {
-        let store = try makeStore()
-        try await store.put(model: "story", entry: entry("s1"))
-
-        try await store.delete(model: "story", id: "nope")
-
-        let all = try await store.all(model: "story")
-        XCTAssertEqual(all.count, 1)
-    }
-
     func testAllOnAnUnknownModelIsEmptyRatherThanAnError() async throws {
         let store = try makeStore()
 

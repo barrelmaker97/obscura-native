@@ -62,10 +62,7 @@ class ReconnectResilienceTests {
         val received = mutableListOf<String>()
         repeat(2) {
             val msg = bob.waitForMessage(15_000)
-            val text = if (msg.type == "MODEL_SYNC") {
-                JSONObject(String(msg.raw!!.modelSync.data.toByteArray())).optString("content", msg.text)
-            } else msg.text
-            received.add(text)
+            received.add(JSONObject(String(msg.raw!!.modelSync.data.toByteArray())).getString("content"))
         }
         assertTrue(received.contains("while you were gone 1"))
         assertTrue(received.contains("while you were gone 2"))

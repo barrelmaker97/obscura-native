@@ -1,7 +1,6 @@
 package scenarios
 
 import com.google.protobuf.ByteString
-import com.obscura.kit.wire.ModelOp
 import com.obscura.kit.wire.WireCodec
 import obscura.client.v1.Client
 import org.json.JSONObject
@@ -15,9 +14,8 @@ import java.io.File
  * `protocol/conformance/wire.json` (see NATIVE_CONTRACT §3). Both platforms run the
  * same file.
  *
- * Pins the enum <-> app-facing-form mappings introduced by the v2 client.proto
- * renumbering (which a single mis-copied `when` would silently break
- * cross-platform) and that a ModelSync round-trips through the wire by VALUE.
+ * Pins the signal enum <-> app-facing-form mapping and that a ModelSync
+ * round-trips through the wire by VALUE.
  * Byte-canonicity is intentionally NOT asserted (SPEC §3.3).
  */
 class WireConformanceTest {
@@ -32,16 +30,6 @@ class WireConformanceTest {
             tests.add(dyn("messageType $wire -> \"$app\"") {
                 val case = Client.ClientMessage.PayloadCase.valueOf(wire.uppercase())
                 assertEquals(app, WireCodec.decodeType(case))
-            })
-        }
-
-        forEach(v.getJSONArray("modelSyncOps")) { c ->
-            val wire = c.getString("wire"); val app = c.getString("app")
-            tests.add(dyn("modelSyncOp $wire <-> $app") {
-                val wireOp = Client.ModelSync.Op.valueOf(wire)
-                val appOp = ModelOp.valueOf(app)
-                assertEquals(appOp, WireCodec.decodeOp(wireOp), "decode $wire")
-                assertEquals(wireOp, WireCodec.encodeOp(appOp), "encode $app")
             })
         }
 
@@ -65,24 +53,20 @@ class WireConformanceTest {
     private fun roundTrip(ms: JSONObject) {
         val model = ms.getString("model")
         val id = ms.getString("id")
-        val appOp = ModelOp.fromApp(ms.getString("op"))
         val ts = ms.getLong("timestamp")
         val dataMap = ms.getJSONObject("data").toMap()
 
         val proto = Client.ModelSync.newBuilder()
             .setModel(model)
             .setId(id)
-            .setOp(WireCodec.encodeOp(appOp))
             .setTimestamp(ts)
             .setData(ByteString.copyFrom(JSONObject(dataMap).toString().toByteArray()))
-            .setAuthorDeviceId("d0")
             .build()
 
         val decoded = Client.ModelSync.parseFrom(proto.toByteArray())
 
         assertEquals(model, decoded.model, "model")
         assertEquals(id, decoded.id, "id")
-        assertEquals(appOp, WireCodec.decodeOp(decoded.op), "op")
         assertEquals(ts, decoded.timestamp, "timestamp")
         // data round-trips by VALUE (parsed map), not bytes — key order is irrelevant.
         assertEquals(dataMap, JSONObject(String(decoded.data.toByteArray())).toMap(), "data value")

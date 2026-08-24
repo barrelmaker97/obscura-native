@@ -21,7 +21,6 @@ data class InboxRecord(
     val senderDisplayName: String?,
     val modelKey: String?,
     val entryId: String?,
-    val op: String?,
     val sentAt: Long?,
     val payload: ByteArray,
 ) {
@@ -33,8 +32,8 @@ data class InboxRecord(
         return id == other.id && envelopeId == other.envelopeId && kind == other.kind &&
             receivedAt == other.receivedAt && senderUserId == other.senderUserId &&
             senderDeviceId == other.senderDeviceId && senderDisplayName == other.senderDisplayName &&
-            modelKey == other.modelKey && entryId == other.entryId && op == other.op &&
-            sentAt == other.sentAt && payload.contentEquals(other.payload)
+            modelKey == other.modelKey && entryId == other.entryId && sentAt == other.sentAt &&
+            payload.contentEquals(other.payload)
     }
 
     override fun hashCode(): Int = 31 * id.hashCode() + payload.contentHashCode()
@@ -85,7 +84,7 @@ class InboxDomain internal constructor(private val db: ObscuraDatabase) {
         db.inboxQueries.insertRow(
             record.envelopeId, record.kind, record.receivedAt, record.senderUserId,
             record.senderDeviceId, record.senderDisplayName, record.modelKey, record.entryId,
-            record.op, record.sentAt, record.payload,
+            record.sentAt, record.payload,
         )
 
         // Assert the postcondition the ack depends on, rather than inferring it from a row count.
@@ -120,7 +119,6 @@ class InboxDomain internal constructor(private val db: ObscuraDatabase) {
                 senderDisplayName = row.sender_display_name,
                 modelKey = row.model_key,
                 entryId = row.entry_id,
-                op = row.op,
                 sentAt = row.sent_at,
                 payload = row.payload,
             )

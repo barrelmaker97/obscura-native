@@ -18,31 +18,15 @@ class PayloadClassTest {
      * The expected class of every arm, written out. Also the cross-kit contract: `ObscuraKit-swift`'s
      * `PayloadClassTests.testEveryArmHasTheSameClassAsTheKotlinKit` asserts the same table. The kits
      * may differ in how they store a row; they may not differ in whether an arm is stored at all.
-     *
-     * **TEXT, SENT_SYNC and SYNC_BLOB currently diverge.** Kotlin dropped its legacy message model,
-     * so those three have no handler here and are UNIMPLEMENTED; Swift still classifies them
-     * kit-internal. The divergence is safe in one direction only — neither kit inboxes them, so no
-     * app-visible row differs — but Swift must follow before this is a contract again.
      */
     private val expected = mapOf(
         PayloadCase.MODEL_SYNC to PayloadClass.INBOXED,
-        PayloadCase.CONTENT_REFERENCE to PayloadClass.INBOXED,
-        PayloadCase.CHUNKED_CONTENT_REFERENCE to PayloadClass.INBOXED,
         PayloadCase.FRIEND_REQUEST to PayloadClass.KIT_INTERNAL,
         PayloadCase.FRIEND_RESPONSE to PayloadClass.KIT_INTERNAL,
         PayloadCase.DEVICE_ANNOUNCE to PayloadClass.KIT_INTERNAL,
         PayloadCase.DEVICE_LINK_APPROVAL to PayloadClass.KIT_INTERNAL,
         PayloadCase.SESSION_RESET to PayloadClass.KIT_INTERNAL,
         PayloadCase.MODEL_SIGNAL to PayloadClass.DROPPABLE,
-        PayloadCase.SYNC_BLOB to PayloadClass.UNIMPLEMENTED,
-        PayloadCase.SENT_SYNC to PayloadClass.UNIMPLEMENTED,
-        PayloadCase.TEXT to PayloadClass.UNIMPLEMENTED,
-        PayloadCase.DEVICE_RECOVERY_ANNOUNCE to PayloadClass.UNIMPLEMENTED,
-        PayloadCase.HISTORY_CHUNK to PayloadClass.UNIMPLEMENTED,
-        PayloadCase.SYNC_REQUEST to PayloadClass.UNIMPLEMENTED,
-        PayloadCase.FRIEND_SYNC to PayloadClass.UNIMPLEMENTED,
-        PayloadCase.SETTINGS_SYNC to PayloadClass.UNIMPLEMENTED,
-        PayloadCase.READ_SYNC to PayloadClass.UNIMPLEMENTED,
     )
 
     /**
@@ -85,13 +69,6 @@ class PayloadClassTest {
         assertEquals(PayloadClass.INBOXED, classify(PayloadCase.MODEL_SYNC))
     }
 
-    /** Attachment references contain app-owned key material and must be inboxed. */
-    @Test
-    fun `attachment references are inboxed while a public sender still exists`() {
-        assertEquals(PayloadClass.INBOXED, classify(PayloadCase.CONTENT_REFERENCE))
-        assertEquals(PayloadClass.INBOXED, classify(PayloadCase.CHUNKED_CONTENT_REFERENCE))
-    }
-
     /**
      * The only class permitted to ack without persisting, and it is a closed list. If this ever
      * grows, the growth is a decision about durability, not a routing tweak.
@@ -101,35 +78,6 @@ class PayloadClassTest {
         val droppable = PayloadCase.entries.filter { classify(it) == PayloadClass.DROPPABLE }
 
         assertEquals(listOf(PayloadCase.MODEL_SIGNAL), droppable)
-    }
-
-    /**
-     * §4.2's distinction, and the reason [PayloadClass.UNIMPLEMENTED] exists at all: the inbox
-     * fallback keys on absence from the **classification table**, not absence from the handler. If
-     * these landed in the inbox it would become the place unimplemented kit work goes to be
-     * forgotten, and the classification would stop meaning anything.
-     */
-    @Test
-    fun `classified-but-unimplemented arms are not swept into the inbox`() {
-        val unimplemented = listOf(
-            PayloadCase.DEVICE_RECOVERY_ANNOUNCE,
-            PayloadCase.HISTORY_CHUNK,
-            PayloadCase.SYNC_REQUEST,
-            // FRIEND_SYNC carries no `user_id`, so it cannot safely identify
-            // the friend record to update.
-            PayloadCase.FRIEND_SYNC,
-            PayloadCase.SETTINGS_SYNC,
-            PayloadCase.READ_SYNC,
-            // The legacy message model these three fed is gone; the app's data path is MODEL_SYNC.
-            PayloadCase.TEXT,
-            PayloadCase.SENT_SYNC,
-            PayloadCase.SYNC_BLOB,
-        )
-
-        unimplemented.forEach {
-            assertEquals(PayloadClass.UNIMPLEMENTED, classify(it),
-                "$it is classified in §4 but implemented by neither kit — it must not become inbox fodder")
-        }
     }
 
     /** Kit-owned state stays kit-owned; none of it may reach an app-readable inbox. */

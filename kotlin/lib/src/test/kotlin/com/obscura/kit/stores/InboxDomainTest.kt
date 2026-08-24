@@ -42,7 +42,6 @@ class InboxDomainTest {
         senderDisplayName = "alice",
         modelKey = modelKey,
         entryId = "entry_1",
-        op = "CREATE",
         sentAt = 1_700_000_000_000,
         payload = payload,
     )
@@ -244,7 +243,6 @@ class InboxDomainTest {
         assertEquals("alice", row.senderDisplayName)
         assertEquals("directMessage", row.modelKey)
         assertEquals("entry_1", row.entryId)
-        assertEquals("CREATE", row.op)
         assertArrayEquals(payload, row.payload, "payload is opaque bytes and must not be re-encoded")
     }
 
@@ -256,7 +254,7 @@ class InboxDomainTest {
     fun `an unknown arm is stored with null ModelSync fields`() = runBlocking {
         inbox.put(
             record("env_1", kind = "UNKNOWN_ARM", modelKey = null)
-                .copy(entryId = null, op = null, sentAt = null)
+                .copy(entryId = null, sentAt = null)
         )
 
         val row = inbox.peek().single()
@@ -264,7 +262,6 @@ class InboxDomainTest {
         assertEquals("UNKNOWN_ARM", row.kind)
         assertNull(row.modelKey)
         assertNull(row.entryId)
-        assertNull(row.op)
         assertNull(row.sentAt)
     }
 

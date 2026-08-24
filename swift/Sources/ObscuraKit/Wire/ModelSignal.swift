@@ -16,8 +16,8 @@ internal func parseCanonicalTwoPartyContext(_ contextId: String) -> [String]? {
 /// (`KIT_API.md` §4) rather than something the inbox has to carry.
 ///
 /// ```swift
-/// await client.sendTyping(modelKey: "directMessage", conversationId: convId)
-/// for await who in client.observeTyping(modelKey: "directMessage", conversationId: convId).values {}
+/// await client.sendTyping(modelKey: modelKey, conversationId: convId)
+/// for await who in client.observeTyping(modelKey: modelKey, conversationId: convId).values {}
 /// ```
 /// `ObscuraClient.sendTyping`, `stopTyping`, and `observeTyping` take an opaque model key; signals
 /// do not inspect application schemas.
@@ -27,15 +27,14 @@ internal func parseCanonicalTwoPartyContext(_ contextId: String) -> [String]? {
 public enum SignalType: String, Sendable, Codable {
     case typing
     case stoppedTyping
-    case read
 }
 
 /// In-memory representation of a received/derived signal, held by [SignalStore]
 /// until it auto-expires. The wire form is the typed `ModelSignal` protobuf
 /// message (not JSON); this struct is the kit-internal shape used by the store.
 public struct ModelSignalPayload: Codable, Sendable {
-    public let model: String          // "directMessage"
-    public let signal: String         // "typing", "stoppedTyping", "read"
+    public let model: String
+    public let signal: String         // "typing", "stoppedTyping"
     public let data: [String: String] // {"conversationId": "..."}
     public let authorDeviceId: String
     public let timestamp: UInt64

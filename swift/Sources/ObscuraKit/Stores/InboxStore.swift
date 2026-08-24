@@ -15,7 +15,6 @@ public struct InboxRecord: Sendable, Equatable {
     public let senderDisplayName: String?
     public let modelKey: String?
     public let entryId: String?
-    public let op: String?
     public let sentAt: UInt64?
     public let payload: Data
 
@@ -29,7 +28,6 @@ public struct InboxRecord: Sendable, Equatable {
         senderDisplayName: String? = nil,
         modelKey: String? = nil,
         entryId: String? = nil,
-        op: String? = nil,
         sentAt: UInt64? = nil,
         payload: Data
     ) {
@@ -42,7 +40,6 @@ public struct InboxRecord: Sendable, Equatable {
         self.senderDisplayName = senderDisplayName
         self.modelKey = modelKey
         self.entryId = entryId
-        self.op = op
         self.sentAt = sentAt
         self.payload = payload
     }
@@ -112,12 +109,12 @@ public actor InboxStore {
             try db.execute(sql: """
                 INSERT OR IGNORE INTO inbox_rows (
                     envelope_id, kind, received_at, sender_user_id, sender_device_id,
-                    sender_display_name, model_key, entry_id, op, sent_at, payload
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    sender_display_name, model_key, entry_id, sent_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [
                 record.envelopeId, record.kind, Int64(record.receivedAt), record.senderUserId,
                 record.senderDeviceId, record.senderDisplayName, record.modelKey, record.entryId,
-                record.op, record.sentAt.map { Int64($0) }, record.payload,
+                record.sentAt.map { Int64($0) }, record.payload,
             ])
 
             // Assert the postcondition the ack depends on, rather than inferring it from a row
@@ -156,7 +153,6 @@ public actor InboxStore {
                     senderDisplayName: row["sender_display_name"],
                     modelKey: row["model_key"],
                     entryId: row["entry_id"],
-                    op: row["op"],
                     // Saturating, not `UInt64(_:)`: that TRAPS on a negative value, which would be a
                     // hard crash in `peek` — and a negative `sent_at` is reachable, because
                     // `ModelSync.timestamp` is proto3 `uint64` and Kotlin's protobuf surfaces it as

@@ -3,7 +3,7 @@ package com.obscura.kit.managers
 import obscura.client.v1.Client.ClientMessage
 
 /**
- * Send application entries and attachments. Upload/download attachments.
+ * Send application entries. Upload/download attachments.
  */
 internal class MessagingManager(
     private val ctx: ClientContext
@@ -11,38 +11,14 @@ internal class MessagingManager(
     private val session get() = ctx.session
     private val api get() = ctx.api
     private val messenger get() = ctx.messenger
-    private val friends get() = ctx.friends
     private val devices get() = ctx.devices
     private val messageSender get() = ctx.messageSender
-
-    suspend fun sendAttachment(friendUsername: String, attachmentId: String, contentKey: ByteArray, nonce: ByteArray, mimeType: String, sizeBytes: Long) {
-        val friendData = friends.getAccepted().find { it.username == friendUsername }
-            ?: throw com.obscura.kit.ObscuraError.NotFriends(friendUsername)
-
-        val msg = ClientMessage.newBuilder()
-            .setTimestamp(System.currentTimeMillis())
-            .setContentReference(obscura.client.v1.contentReference {
-                this.attachmentId = attachmentId
-                this.contentKey = com.google.protobuf.ByteString.copyFrom(contentKey)
-                this.nonce = com.google.protobuf.ByteString.copyFrom(nonce)
-                this.contentType = mimeType
-                this.sizeBytes = sizeBytes
-            }).build()
-
-        messageSender.sendToAllDevices(friendData.userId, msg)
-    }
-
-    suspend fun sendEncryptedAttachment(friendUsername: String, plaintext: ByteArray, mimeType: String = "application/octet-stream") {
-        val encrypted = com.obscura.kit.crypto.AttachmentCrypto.encrypt(plaintext)
-        val result = api.uploadAttachment(encrypted.ciphertext)
-        sendAttachment(friendUsername, result.id, encrypted.contentKey, encrypted.nonce, mimeType, encrypted.sizeBytes)
-    }
 
     /**
      * Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit.
      *
      * ```
-     * send(recipientUserIds, modelKey, entryId, op, sentAt, payload)
+     * send(recipientUserIds, modelKey, entryId, sentAt, payload)
      * ```
      *
      * **The caller names the recipients** (SPEC §0.4). The kit fans out to every device of every
@@ -66,7 +42,6 @@ internal class MessagingManager(
         recipientUserIds: List<String>,
         modelKey: String,
         entryId: String,
-        op: String,
         sentAt: Long,
         payload: ByteArray,
     ) {
@@ -75,10 +50,8 @@ internal class MessagingManager(
             .setModelSync(obscura.client.v1.modelSync {
                 this.model = modelKey
                 this.id = entryId
-                this.op = com.obscura.kit.wire.WireCodec.encodeOp(com.obscura.kit.wire.ModelOp.fromApp(op))
                 timestamp = sentAt
                 this.data = com.google.protobuf.ByteString.copyFrom(payload)
-                authorDeviceId = session.deviceId ?: ""
             }).build()
 
         // `distinct()` because the app may legitimately name the same user twice — e.g. both

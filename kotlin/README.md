@@ -42,7 +42,6 @@ client.send(
     recipientUserIds = listOf(friendUserId),
     modelKey = "pix",
     entryId = java.util.UUID.randomUUID().toString(),
-    op = "CREATE",
     payload = """{"caption":"hello"}""".toByteArray(),
 )
 
@@ -80,7 +79,7 @@ See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for auth and device linking
 │           payload bytes are opaque, never parsed     │
 ╞══════════════════════════════════════════════════════╡
 │  Level 2: Signal Protocol encrypt/decrypt            │
-│           18 client-to-client arms in client.proto   │
+│            7 client-to-client arms in client.proto   │
 ╞══════════════════════════════════════════════════════╡
 │  Level 1: WebSocket + REST (server is a dumb relay)  │
 ╞══════════════════════════════════════════════════════╡

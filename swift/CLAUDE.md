@@ -13,12 +13,13 @@ Read these first:
   migration history.
 
 The current app-facing surface is
-`client.send(to:modelKey:entryId:op:sentAt:payload:)`, the durable
+`client.send(to:modelKey:entryId:sentAt:payload:)`, the durable
 `client.inbox`, and opaque `client.entries` storage. Merge, audience resolution,
 schemas, queries, expiry, and notification policy live in `obscura-pix`.
 
-`ObscuraSchema` owns additive database migrations. **Never edit an applied
-migration; add a new one.**
+`ObscuraSchema` owns the current pre-release baseline. Until the first public
+release, schema changes require clearing app data rather than carrying prototype
+migrations. After release, never edit an applied migration.
 
 The rule that governs this repo:
 
@@ -40,7 +41,7 @@ entry store beyond `KIT_API.md` §8.1.
 - Device announcements use a trust-on-first-use recovery key but have no replay
   protection. Timestamp ordering rejects stale state but is not a nonce.
 - Linked devices receive the friend graph at link time but do not learn friends
-  added later. `FRIEND_SYNC` is unsupported.
+  added later.
 - There is no remote device revocation. Use `api.deleteDevice` from a device you
   still hold.
 - `MODEL_SYNC` has one durable receive write: `inbox.put`. Persistence errors

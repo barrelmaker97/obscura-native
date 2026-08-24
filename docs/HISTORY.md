@@ -101,14 +101,17 @@ onto one dedupe key, an audience taken from peer-supplied payload. Subtraction w
   client methods, `ObscuraConfig.enableRecoveryPhrase`, and `ClientSession.recoveryPhrase` /
   `recoveryPublicKey`. The config flag defaulted false and the app never set it.
 
-  Kept deliberately: `Bip39`, `RecoveryKeys`, `VerificationCode`, `BackupCrypto` and their unit
-  tests, so recovery can be rebuilt on `EntryStore`; and the whole inbound trust-on-first-use path
-  (`handleDeviceAnnounce`'s signature verification, `FriendData.recoveryPublicKey`, the
-  `recovery_public_key` column), which is a receive-side defense that fails closed.
+  `Bip39` and `RecoveryKeys` remain because the inbound trust-on-first-use path verifies
+  `DEVICE_ANNOUNCE` signatures against a pinned recovery public key.
 
   Swift followed on 2026-08-23: `ObscuraSchema` migration `v3` drops its `messages` table, the
   matching model/recovery APIs and handlers are gone, and `TEXT`, `SENT_SYNC` and `SYNC_BLOB` are
   now UNIMPLEMENTED in both kits.
+
+- **2026-08-23 — the client schema was reduced to live behavior.** With no released clients to
+  preserve, the unused message, sync, recovery, attachment-reference, delete, and read-signal arms
+  were removed rather than retained as compatibility surface. Attachments now travel only as
+  encrypted references inside application-owned `MODEL_SYNC` payloads.
 
 ## Known gaps carried forward
 
@@ -116,15 +119,9 @@ These were open when the planning documents were retired, and are not recorded a
 
 - **Nothing expires.** TTL went with the engine and has not been rebuilt, on either platform.
   Stories never expire, for author or recipient.
-- **`FRIEND_SYNC` was deleted from both kits and DEPRECATED on the wire, not removed from it.**
-  `FriendSync` carries no `user_id`, so both kits keyed the synced friend on the sender's own id and
-  wrote the user into their own friends list. Neither kit now sends or handles it. The field stays
-  declared so an older peer's message is still a *known* arm — classified UNIMPLEMENTED, dropped and
-  acked loudly — rather than an unknown one inboxed as opaque bytes. Consequence: a second device
-  does not learn about friends added later; `DEVICE_LINK_APPROVAL` still carries the friends export
-  at link time. Rebuilding it properly needs a `user_id` field and a new number.
+- **Linked devices do not learn friendships added after link time.**
+  `DEVICE_LINK_APPROVAL` carries the current friend export once; there is no incremental friend-sync
+  protocol.
 - **Swift sends `DEVICE_LINK_APPROVAL` but cannot receive one**, so a newly-linked device discards
   the p2p keypair, recovery key, friends export and approver device list. Kotlin routes it; Swift
   now has no legacy `SYNC_BLOB` fallback.
-- **Declared compatibility arms remain in `client.proto`.** Current receive classifications and
-  removal constraints are in `KIT_API.md` §4.2 and §11.

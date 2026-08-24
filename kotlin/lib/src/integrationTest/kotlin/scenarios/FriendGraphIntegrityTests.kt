@@ -27,6 +27,29 @@ class FriendGraphIntegrityTests {
     private fun need() = assumeTrue(serverUp)
 
     @Test
+    fun `rescanning an accepted friend is idempotent`() = runBlocking {
+        need()
+
+        val alice = registerAndConnect("fgi_rescan_alice")
+        val bob = registerAndConnect("fgi_rescan_bob")
+        becomeFriends(alice, bob)
+
+        alice.befriend(bob.userId!!, bob.username!!)
+        delay(500)
+
+        assertEquals(
+            FriendStatus.ACCEPTED,
+            alice.friendList.value.find { it.userId == bob.userId }?.status,
+        )
+        assertEquals(
+            FriendStatus.ACCEPTED,
+            bob.friendList.value.find { it.userId == alice.userId }?.status,
+        )
+
+        alice.disconnect(); bob.disconnect()
+    }
+
+    @Test
     fun `an accepted friend cannot rename itself or reset its own status`() = runBlocking {
         need()
 

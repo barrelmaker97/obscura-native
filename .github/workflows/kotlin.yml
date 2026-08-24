@@ -39,11 +39,6 @@ jobs:
       - name: Lint client protocol
         run: buf lint ../protocol
 
-      - name: Check client protocol compatibility
-        run: >-
-          buf breaking ../protocol
-          --against 'https://github.com/barrelmaker97/obscura-native.git#branch=main,subdir=protocol'
-
       - name: Validate client protocol vectors
         run: python3 ../protocol/conformance/validate.py
 

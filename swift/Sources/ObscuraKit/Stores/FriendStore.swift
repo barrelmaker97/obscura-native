@@ -131,11 +131,14 @@ public actor FriendActor {
         }) ?? []
     }
 
-    public func updateStatus(_ userId: String, _ newStatus: FriendStatus) async {
+    public func updateStatus(_ userId: String, _ newStatus: FriendStatus) async throws {
         let now = UInt64(Date().timeIntervalSince1970 * 1000)
-        try? await db.write { db in
+        try await db.write { db in
             try db.execute(sql: "UPDATE friends SET status = ?, updated_at = ? WHERE user_id = ?",
                            arguments: [newStatus.rawValue, now, userId])
+            guard db.changesCount == 1 else {
+                throw DatabaseError(message: "friend \(userId) is missing; status was not updated")
+            }
         }
     }
 

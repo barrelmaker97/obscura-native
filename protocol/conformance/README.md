@@ -16,12 +16,11 @@ duplicated as kit conformance engines.
 - Keep application model fixtures out of this directory.
 - Use strict JSON with no comments or trailing commas.
 
-The file has four arrays:
+The file has three arrays:
 
 | Array | Purpose |
 |---|---|
 | `messageTypes` | Proto payload-arm to app kind mappings. |
-| `modelSyncOps` | `ModelSync.Op` mappings. |
 | `signalKinds` | Ephemeral signal mappings. |
 | `roundTrip` | Value-preserving `ModelSync` encode/decode cases. |
 
