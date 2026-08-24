@@ -13,7 +13,7 @@ internal enum class PayloadDisposition {
     /** Application content. Goes in the inbox; the app drains it. Ack only after the row commits. */
     INBOXED,
 
-    /** Mutates kit-owned state (friend graph, devices, sessions). Ack only after the kit's write. */
+    /** Mutates kit-owned state (friend graph or devices). Ack only after the kit's write. */
     KIT_INTERNAL,
 
     /** Ephemeral by design, no durable delivery guarantee. MAY be acked without persistence. */
@@ -39,14 +39,13 @@ internal fun payloadDisposition(arm: PayloadCase): PayloadDisposition = when (ar
 
     // Kit-owned state, all with live handlers in ObscuraClient.routeMessage.
     PayloadCase.FRIEND_REQUEST,
-    PayloadCase.FRIEND_RESPONSE,
+    PayloadCase.FRIEND_ACCEPT,
     PayloadCase.DEVICE_ANNOUNCE,
-    PayloadCase.DEVICE_LINK_APPROVAL,
-    PayloadCase.SESSION_RESET -> PayloadDisposition.KIT_INTERNAL
+    PayloadCase.DEVICE_LINK_APPROVAL -> PayloadDisposition.KIT_INTERNAL
 
-    // Typing indicators. client.proto says "in-memory only", and §4 permits acking these without
+    // Typing indicators. The contract makes them in-memory only, and §4 permits acking without
     // persistence — the ONLY class for which that is allowed.
-    PayloadCase.MODEL_SIGNAL -> PayloadDisposition.DROPPABLE
+    PayloadCase.TYPING_SIGNAL -> PayloadDisposition.DROPPABLE
 
     // Unknown or future arm, and PAYLOAD_NOT_SET. Inbox it unparsed rather than destroy it.
     else -> PayloadDisposition.INBOXED

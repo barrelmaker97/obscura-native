@@ -42,7 +42,6 @@ internal class AuthManager(
     suspend fun register(username: String, password: String) {
         session.username = username
         val (identityKeyPair, regId) = signalStore.generateIdentity()
-        session.registrationId = regId
         val signedPreKey = SignalKeyUtils.generateSignedPreKey(signalStore, identityKeyPair, 1)
         val oneTimePreKeys = SignalKeyUtils.generateOneTimePreKeys(signalStore, 1, 100)
         val regResult = api.registerUser(username, password)
@@ -63,21 +62,16 @@ internal class AuthManager(
         messenger.mapDevice(
             requireNotNull(session.deviceId) { "deviceId not set - register failed to provision device" },
             requireNotNull(session.userId) { "userId not set - register failed to resolve user" },
-            regId
         )
 
         devices.storeIdentity(DeviceIdentityData(
             deviceId = requireNotNull(session.deviceId) { "deviceId not set - register failed to provision device" },
-            userId = requireNotNull(session.userId) { "userId not set - register failed to resolve user" },
-            username = username,
-            token = deviceToken
         ))
 
         // DeviceAnnounce and link approval require a complete own-device registry.
         devices.addOwnDevice(OwnDeviceData(
             deviceId = requireNotNull(session.deviceId),
             deviceName = config.deviceName,
-            signalIdentityKey = identityKeyPair.publicKey.serialize()
         ))
 
         setAuthState(AuthState.AUTHENTICATED)
@@ -89,7 +83,7 @@ internal class AuthManager(
      * Returns LoginResult so the app knows what to show:
      * - EXISTING_DEVICE → authenticated, data preserved
      * - NEW_DEVICE → need to call loginAndProvision()
-     * - DEVICE_MISMATCH → local device was revoked, need wipeDevice() + loginAndProvision()
+     * - DEVICE_MISMATCH → server rejected the local device; wipeDevice() + loginAndProvision()
      * - INVALID_CREDENTIALS → wrong password
      * - USER_NOT_FOUND → need to register()
      */
@@ -106,10 +100,8 @@ internal class AuthManager(
                 session.userId = api.getUserId(token)
                 session.deviceId = result.deviceId ?: api.getDeviceId(token)
                 session.username = username
-                session.registrationId = signalStore.getLocalRegistrationId()
 
-                devices.storeIdentity(identity.copy(token = token))
-                messenger.mapDevice(session.deviceId!!, session.userId!!, session.registrationId)
+                messenger.mapDevice(session.deviceId!!, session.userId!!)
 
                 setAuthState(AuthState.AUTHENTICATED)
                 delay(config.authRateLimitDelayMs)
@@ -124,7 +116,7 @@ internal class AuthManager(
             } catch (e: HttpException) {
                 // Device login failed — check why
                 if (e.statusCode == 401 || e.statusCode == 403) {
-                    // Could be wrong password OR device was revoked
+                    // Could be wrong password or a server-rejected local device.
                     // Try login without deviceId to distinguish
                 } else if (e.statusCode == 404) {
                     return LoginResult(scenario = LoginScenario.USER_NOT_FOUND)
@@ -166,7 +158,6 @@ internal class AuthManager(
         session.userId = api.getUserId(loginResult.token)
 
         val (identityKeyPair, regId) = signalStore.generateIdentity()
-        session.registrationId = regId
 
         val signedPreKey = SignalKeyUtils.generateSignedPreKey(signalStore, identityKeyPair, 1)
         val oneTimePreKeys = SignalKeyUtils.generateOneTimePreKeys(signalStore, 1, 100)
@@ -187,21 +178,16 @@ internal class AuthManager(
         messenger.mapDevice(
             requireNotNull(session.deviceId) { "deviceId not set - loginAndProvision failed to provision device" },
             requireNotNull(session.userId) { "userId not set - loginAndProvision failed to resolve user" },
-            regId
         )
 
         devices.storeIdentity(DeviceIdentityData(
             deviceId = requireNotNull(session.deviceId) { "deviceId not set - loginAndProvision failed to provision device" },
-            userId = requireNotNull(session.userId) { "userId not set - loginAndProvision failed to resolve user" },
-            username = username,
-            token = deviceToken
         ))
 
         // Record the pending device locally; approval later reconciles the full account list.
         devices.addOwnDevice(OwnDeviceData(
             deviceId = requireNotNull(session.deviceId),
             deviceName = deviceName,
-            signalIdentityKey = identityKeyPair.publicKey.serialize()
         ))
 
         // Device is provisioned on the server but NOT approved by an existing device yet.
@@ -216,17 +202,15 @@ internal class AuthManager(
         userId: String,
         deviceId: String?,
         username: String?,
-        registrationId: Int = 0
     ) {
         api.token = token
         session.refreshToken = refreshToken
         session.userId = userId
         session.deviceId = deviceId
         session.username = username
-        session.registrationId = registrationId
 
         if (deviceId != null) {
-            messenger.mapDevice(deviceId, userId, registrationId)
+            messenger.mapDevice(deviceId, userId)
         }
 
         setAuthState(AuthState.AUTHENTICATED)

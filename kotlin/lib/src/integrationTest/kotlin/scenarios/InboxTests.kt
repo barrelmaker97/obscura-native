@@ -53,8 +53,6 @@ class InboxTests {
         assertEquals(alice.userId, row.senderUserId)
         assertEquals(alice.deviceId, row.senderDeviceId,
             "senderDeviceId is the address of the session that decrypted — cryptographic attribution")
-        assertEquals(alice.username, row.senderDisplayName,
-            "display name is resolved from BOB's friend graph, not from anything Alice sent")
         assertTrue(row.payload.isNotEmpty(), "payload is the opaque model data")
 
         alice.disconnect(); bob.disconnect()

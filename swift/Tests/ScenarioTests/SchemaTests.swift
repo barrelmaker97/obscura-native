@@ -32,12 +32,12 @@ final class SchemaTests: XCTestCase {
 
         XCTAssertEqual(try columns(of: "model_entries", in: db), [
             "model_name:TEXT", "id:TEXT", "data:TEXT", "timestamp:INTEGER",
-            "author_device_id:TEXT",
+            "author_device_id:TEXT", "local_metadata:TEXT",
         ])
         XCTAssertEqual(try columns(of: "inbox_rows", in: db), [
-            "id:INTEGER", "envelope_id:TEXT", "kind:TEXT", "received_at:INTEGER",
-            "sender_user_id:TEXT", "sender_device_id:TEXT", "sender_display_name:TEXT",
-            "model_key:TEXT", "entry_id:TEXT", "sent_at:INTEGER", "payload:BLOB",
+            "id:INTEGER", "envelope_id:TEXT", "kind:TEXT", "sender_user_id:TEXT",
+            "sender_device_id:TEXT", "model_key:TEXT", "entry_id:TEXT",
+            "sent_at:INTEGER", "payload:BLOB",
         ])
     }
 

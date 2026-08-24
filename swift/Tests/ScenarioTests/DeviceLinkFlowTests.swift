@@ -30,16 +30,13 @@ final class DeviceLinkFlowTests: XCTestCase {
         await rateLimitDelay()
 
         // Existing device sends DEVICE_LINK_APPROVAL
-        // Build approval message with p2p keys and device list
+        // Build approval message with challenge, device list, and friend export.
         var approval = Obscura_Client_V1_DeviceLinkApproval()
-        approval.p2PPublicKey = Data(repeating: 0x05, count: 33)   // p2p identity
-        approval.p2PPrivateKey = Data(repeating: 0xBB, count: 32)  // p2p private (encrypted transfer)
-        approval.recoveryPublicKey = Data(repeating: 0xCC, count: 32)
         approval.challengeResponse = Data(repeating: 0xDD, count: 32)  // echo back challenge
 
         var device1Info = Obscura_Client_V1_DeviceInfo()
-        device1Info.deviceID = existingDevice.deviceId ?? ""
-        device1Info.deviceName = "Existing Phone"
+        device1Info.id = existingDevice.deviceId ?? ""
+        device1Info.name = "Existing Phone"
         approval.ownDevices = [device1Info]
 
         approval.friendsExport = Data("[]".utf8)

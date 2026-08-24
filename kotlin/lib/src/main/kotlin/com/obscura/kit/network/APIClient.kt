@@ -154,7 +154,7 @@ class APIClient(private val baseUrl: String) {
         return executeBytes(request)
     }
 
-    suspend fun uploadAttachment(blob: ByteArray): AttachmentUploadResponse {
+    suspend fun uploadAttachment(blob: ByteArray): String {
         val request = Request.Builder()
             .url("$baseUrl/v1/attachments")
             .post(blob.toRequestBody(OCTET_MEDIA))
@@ -162,10 +162,7 @@ class APIClient(private val baseUrl: String) {
             .build()
 
         val json = JSONObject(executeString(request))
-        return AttachmentUploadResponse(
-            id = json.getString("id"),
-            expiresAt = json.optLong("expiresAt", 0)
-        )
+        return json.getString("id")
     }
 
     suspend fun fetchAttachment(id: String): ByteArray {

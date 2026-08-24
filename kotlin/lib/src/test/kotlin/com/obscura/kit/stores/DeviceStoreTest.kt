@@ -2,7 +2,6 @@ package com.obscura.kit.stores
 
 import com.obscura.kit.newInMemoryDatabase
 import kotlinx.coroutines.test.runTest
-import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -22,13 +21,6 @@ class DeviceStoreTest {
 
     private fun sampleIdentity(deviceId: String = "device-1") = DeviceIdentityData(
         deviceId = deviceId,
-        userId = "user-1",
-        username = "alice",
-        token = "tok-abc",
-        p2pPublicKey = byteArrayOf(0x01, 0x02),
-        p2pPrivateKey = byteArrayOf(0x03, 0x04),
-        recoveryPublicKey = byteArrayOf(0x05),
-        recoveryPrivateKey = byteArrayOf(0x06)
     )
 
     @Test
@@ -37,19 +29,12 @@ class DeviceStoreTest {
     }
 
     @Test
-    fun `store then get identity round-trips all fields`() = runTest {
+    fun `store then get identity round-trips the device id`() = runTest {
         val d = newDomain()
         d.storeIdentity(sampleIdentity())
 
         val loaded = d.getIdentity()!!
         assertEquals("device-1", loaded.deviceId)
-        assertEquals("user-1", loaded.userId)
-        assertEquals("alice", loaded.username)
-        assertEquals("tok-abc", loaded.token)
-        assertArrayEquals(byteArrayOf(0x01, 0x02), loaded.p2pPublicKey)
-        assertArrayEquals(byteArrayOf(0x03, 0x04), loaded.p2pPrivateKey)
-        assertArrayEquals(byteArrayOf(0x05), loaded.recoveryPublicKey)
-        assertArrayEquals(byteArrayOf(0x06), loaded.recoveryPrivateKey)
     }
 
     @Test
@@ -58,14 +43,12 @@ class DeviceStoreTest {
         d.addOwnDevice(OwnDeviceData(
             deviceId = "dev-a",
             deviceName = "Pixel 8",
-            signalIdentityKey = byteArrayOf(0xAB.toByte(), 0xCD.toByte())
         ))
 
         val devices = d.getOwnDevices()
         assertEquals(1, devices.size)
         assertEquals("dev-a", devices[0].deviceId)
         assertEquals("Pixel 8", devices[0].deviceName)
-        assertArrayEquals(byteArrayOf(0xAB.toByte(), 0xCD.toByte()), devices[0].signalIdentityKey)
     }
 
     @Test
@@ -75,8 +58,8 @@ class DeviceStoreTest {
         assertEquals(1, d.getOwnDevices().size)
 
         d.setOwnDevices(listOf(
-            FriendDeviceInfo("uuid-1", "new-dev-1", "Phone A", 100),
-            FriendDeviceInfo("uuid-2", "new-dev-2", "Phone B", 200),
+            FriendDeviceInfo("new-dev-1", "Phone A"),
+            FriendDeviceInfo("new-dev-2", "Phone B"),
         ))
 
         val after = d.getOwnDevices()
@@ -85,17 +68,6 @@ class DeviceStoreTest {
         assertTrue("new-dev-1" in ids)
         assertTrue("new-dev-2" in ids)
         assertTrue("old-dev" !in ids, "Old device must be wiped by setOwnDevices")
-    }
-
-    @Test
-    fun `setOwnDevices falls back to deviceUuid when deviceId is blank`() = runTest {
-        // Real-world: link-code flow sometimes sends deviceUuid but not yet
-        // a server-assigned deviceId. Code path uses deviceUuid as PK.
-        val d = newDomain()
-        d.setOwnDevices(listOf(
-            FriendDeviceInfo(deviceUuid = "uuid-only", deviceId = "", deviceName = "fresh")
-        ))
-        assertEquals(listOf("uuid-only"), d.getOwnDevices().map { it.deviceId })
     }
 
     @Test

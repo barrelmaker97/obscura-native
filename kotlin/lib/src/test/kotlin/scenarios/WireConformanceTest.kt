@@ -1,6 +1,7 @@
 package scenarios
 
 import com.google.protobuf.ByteString
+import com.obscura.kit.TypingState
 import com.obscura.kit.wire.WireCodec
 import obscura.client.v1.Client
 import org.json.JSONObject
@@ -33,12 +34,13 @@ class WireConformanceTest {
             })
         }
 
-        forEach(v.getJSONArray("signalKinds")) { c ->
+        forEach(v.getJSONArray("typingStates")) { c ->
             val wire = c.getString("wire"); val app = c.getString("app")
-            tests.add(dyn("signalKind $wire <-> \"$app\"") {
-                val wireKind = Client.SignalKind.valueOf(wire)
-                assertEquals(app, WireCodec.decodeSignalKind(wireKind), "decode $wire")
-                assertEquals(wireKind, WireCodec.encodeSignalKind(app), "encode $app")
+            tests.add(dyn("typingState $wire <-> \"$app\"") {
+                val wireState = Client.TypingState.valueOf(wire)
+                val appState = TypingState.valueOf(app.uppercase())
+                assertEquals(appState, WireCodec.decodeTypingState(wireState), "decode $wire")
+                assertEquals(wireState, WireCodec.encodeTypingState(appState), "encode $app")
             })
         }
 

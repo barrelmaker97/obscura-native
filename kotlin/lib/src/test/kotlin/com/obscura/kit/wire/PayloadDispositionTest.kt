@@ -22,11 +22,10 @@ class PayloadDispositionTest {
     private val expected = mapOf(
         PayloadCase.APP_ENTRY to PayloadDisposition.INBOXED,
         PayloadCase.FRIEND_REQUEST to PayloadDisposition.KIT_INTERNAL,
-        PayloadCase.FRIEND_RESPONSE to PayloadDisposition.KIT_INTERNAL,
+        PayloadCase.FRIEND_ACCEPT to PayloadDisposition.KIT_INTERNAL,
         PayloadCase.DEVICE_ANNOUNCE to PayloadDisposition.KIT_INTERNAL,
         PayloadCase.DEVICE_LINK_APPROVAL to PayloadDisposition.KIT_INTERNAL,
-        PayloadCase.SESSION_RESET to PayloadDisposition.KIT_INTERNAL,
-        PayloadCase.MODEL_SIGNAL to PayloadDisposition.DROPPABLE,
+        PayloadCase.TYPING_SIGNAL to PayloadDisposition.DROPPABLE,
     )
 
     /**
@@ -77,16 +76,15 @@ class PayloadDispositionTest {
     fun `typing indicators are the only droppable arm`() {
         val droppable = PayloadCase.entries.filter { payloadDisposition(it) == PayloadDisposition.DROPPABLE }
 
-        assertEquals(listOf(PayloadCase.MODEL_SIGNAL), droppable)
+        assertEquals(listOf(PayloadCase.TYPING_SIGNAL), droppable)
     }
 
     /** Kit-owned state stays kit-owned; none of it may reach an app-readable inbox. */
     @Test
     fun `friend and device arms are kit-internal`() {
         listOf(
-            PayloadCase.FRIEND_REQUEST, PayloadCase.FRIEND_RESPONSE,
+            PayloadCase.FRIEND_REQUEST, PayloadCase.FRIEND_ACCEPT,
             PayloadCase.DEVICE_ANNOUNCE, PayloadCase.DEVICE_LINK_APPROVAL,
-            PayloadCase.SESSION_RESET,
         ).forEach {
             assertEquals(PayloadDisposition.KIT_INTERNAL, payloadDisposition(it), "$it mutates kit-owned state")
         }

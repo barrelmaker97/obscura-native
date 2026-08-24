@@ -3,8 +3,7 @@ import XCTest
 
 /// Device API and two-way messaging scenarios against the actual server.
 ///
-/// Remote device revocation is not implemented. These scenarios cover the
-/// supported multi-device messaging and local device-state operations.
+/// Supported multi-device messaging and local device-state operations.
 final class DeviceApiTests: XCTestCase {
 
     // MARK: - 7.1: Two-way entry exchange

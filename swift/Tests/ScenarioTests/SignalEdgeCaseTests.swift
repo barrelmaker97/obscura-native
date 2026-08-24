@@ -3,7 +3,7 @@ import LibSignalClient
 @testable import ObscuraKit
 
 /// Matches Kotlin's SignalEdgeCaseTests.kt
-/// Signal protocol edge cases: PreKey address quirks, session persistence, selective reset.
+/// Signal protocol edge cases: PreKey address quirks and session persistence.
 final class SignalEdgeCaseTests: XCTestCase {
 
     // MARK: - PreKey decrypt at (userId, 1) regardless of sender regId
@@ -91,50 +91,5 @@ final class SignalEdgeCaseTests: XCTestCase {
         // Session should be loadable
         let loaded = try aliceStore.loadSession(for: addr, context: NullContext())
         XCTAssertNotNil(loaded, "Session should persist in store")
-    }
-
-    // MARK: - Selective session reset (4 devices)
-
-    func testSelectiveSessionResetOnlyClearsTargetSessions() async throws {
-        let alice = try await ObscuraTestClient.register()
-        await rateLimitDelay()
-        let bob = try await ObscuraTestClient.register()
-        await rateLimitDelay()
-        let carol = try await ObscuraTestClient.register()
-        await rateLimitDelay()
-
-        try await alice.connectWebSocket()
-        try await bob.connectWebSocket()
-        try await carol.connectWebSocket()
-        await rateLimitDelay()
-
-        // Alice befriends Bob
-        try await alice.befriend(bob.userId!)
-        _ = try await bob.waitForMessage(timeout: 10)
-        try await bob.acceptFriend(alice.userId!)
-        _ = try await alice.waitForMessage(timeout: 10)
-
-        // Alice befriends Carol
-        try await alice.befriend(carol.userId!)
-        _ = try await carol.waitForMessage(timeout: 10)
-        try await carol.acceptFriend(alice.userId!)
-        _ = try await alice.waitForMessage(timeout: 10)
-
-        // Alice resets session with Bob only
-        try await alice.client.resetSessionWith(bob.userId!, reason: "selective reset")
-        let resetMsg = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(resetMsg.type, "SESSION_RESET", "Bob should get SESSION_RESET")
-
-        // Alice can still send to Carol (that session wasn't reset)
-        try await alice.client.send(
-            to: [carol.userId!], modelKey: "testModel", entryId: "carol-session-intact",
-            payload: Data("Carol session intact".utf8)
-        )
-        let carolMsg = try await carol.waitForMessage(timeout: 10)
-        XCTAssertEqual(carolMsg.type, "APP_ENTRY")
-
-        alice.disconnectWebSocket()
-        bob.disconnectWebSocket()
-        carol.disconnectWebSocket()
     }
 }

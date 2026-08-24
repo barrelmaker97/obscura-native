@@ -101,8 +101,8 @@ onto one dedupe key, an audience taken from peer-supplied payload. Subtraction w
   client methods, `ObscuraConfig.enableRecoveryPhrase`, and `ClientSession.recoveryPhrase` /
   `recoveryPublicKey`. The config flag defaulted false and the app never set it.
 
-  `Bip39` and `RecoveryKeys` remain because the inbound trust-on-first-use path verifies
-  `DEVICE_ANNOUNCE` signatures against a pinned recovery public key.
+  `Bip39` and `RecoveryKeys` remained at that point for inbound device-announcement
+  verification; the later six-arm wire cleanup removed that final path.
 
   Swift followed on 2026-08-23: `ObscuraSchema` migration `v3` drops its `messages` table, the
   matching model/recovery APIs and handlers are gone, and `TEXT`, `SENT_SYNC` and `SYNC_BLOB` are
@@ -110,8 +110,11 @@ onto one dedupe key, an audience taken from peer-supplied payload. Subtraction w
 
 - **2026-08-23 — the client schema was reduced to live behavior.** With no released clients to
   preserve, the unused message, sync, recovery, attachment-reference, delete, and read-signal arms
-  were removed rather than retained as compatibility surface. Attachments now travel only as
-  encrypted references inside application-owned `MODEL_SYNC` payloads.
+  were removed rather than retained as compatibility surface. The sequential payload arms are now
+  `FRIEND_REQUEST`, `FRIEND_ACCEPT`, `DEVICE_LINK_APPROVAL`, `DEVICE_ANNOUNCE`, `APP_ENTRY`, and
+  `TYPING_SIGNAL`. Typing recipients are explicit, the context id is opaque, and the state is a
+  typed STARTED/STOPPED enum. Attachments now travel only as encrypted references inside
+  application-owned `APP_ENTRY` payloads.
 
 ## Known gaps carried forward
 
@@ -123,5 +126,4 @@ These were open when the planning documents were retired, and are not recorded a
   `DEVICE_LINK_APPROVAL` carries the current friend export once; there is no incremental friend-sync
   protocol.
 - **Swift sends `DEVICE_LINK_APPROVAL` but cannot receive one**, so a newly-linked device discards
-  the p2p keypair, recovery key, friends export and approver device list. Kotlin routes it; Swift
-  now has no legacy `SYNC_BLOB` fallback.
+  the friends export and approver device list. Kotlin routes it.

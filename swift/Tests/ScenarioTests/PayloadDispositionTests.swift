@@ -14,10 +14,9 @@ final class PayloadDispositionTests: XCTestCase {
     /// `CaseIterable` — it has associated values — so the list is written out, and
     /// ``testTheArmListMatchesTheGeneratedOneof`` guards it against drift.
     private static let allArms: [Obscura_Client_V1_ClientMessage.OneOf_Payload] = [
-        .friendRequest(.init()), .friendResponse(.init()),
-        .sessionReset(.init()),
+        .friendRequest(.init()), .friendAccept(.init()),
         .deviceLinkApproval(.init()), .deviceAnnounce(.init()),
-        .appEntry(.init()), .modelSignal(.init()),
+        .appEntry(.init()), .typingSignal(.init()),
     ]
 
     /// **The load-bearing test.** A new arm added to `client.proto` must not slip through
@@ -27,7 +26,7 @@ final class PayloadDispositionTests: XCTestCase {
     /// case per arm and returns `""` for anything it does not know. An arm added to the proto but
     /// not to that switch fails here.
     func testTheArmListMatchesTheGeneratedOneof() {
-        XCTAssertEqual(Self.allArms.count, 7, "client.proto declares seven payload arms")
+        XCTAssertEqual(Self.allArms.count, 6, "client.proto declares six payload arms")
 
         for arm in Self.allArms {
             XCTAssertFalse(WireCodec.decodeMessageType(arm).isEmpty,
@@ -54,7 +53,7 @@ final class PayloadDispositionTests: XCTestCase {
         let droppable = Self.allArms.filter { payloadDisposition($0) == .droppable }
 
         XCTAssertEqual(droppable.count, 1)
-        XCTAssertEqual(WireCodec.decodeMessageType(droppable.first), "MODEL_SIGNAL")
+        XCTAssertEqual(WireCodec.decodeMessageType(droppable.first), "TYPING_SIGNAL")
     }
 
     func testSwiftLinkApprovalGapIsExplicit() {
@@ -64,9 +63,8 @@ final class PayloadDispositionTests: XCTestCase {
     /// Kit-owned state stays kit-owned; none of it may reach an app-readable inbox.
     func testFriendAndDeviceArmsAreKitInternal() {
         let kitInternal: [Obscura_Client_V1_ClientMessage.OneOf_Payload] = [
-            .friendRequest(.init()), .friendResponse(.init()),
+            .friendRequest(.init()), .friendAccept(.init()),
             .deviceAnnounce(.init()),
-            .sessionReset(.init()),
             // `.deviceLinkApproval` is deliberately absent — see `divergesFromKotlin`.
         ]
 
@@ -93,10 +91,9 @@ final class PayloadDispositionTests: XCTestCase {
     func testEveryArmHasTheSameClassAsTheKotlinKit() {
         let expected: [String: PayloadDisposition] = [
             "APP_ENTRY": .inboxed,
-            "FRIEND_REQUEST": .kitInternal, "FRIEND_RESPONSE": .kitInternal,
+            "FRIEND_REQUEST": .kitInternal, "FRIEND_ACCEPT": .kitInternal,
             "DEVICE_ANNOUNCE": .kitInternal,
-            "SESSION_RESET": .kitInternal,
-            "MODEL_SIGNAL": .droppable,
+            "TYPING_SIGNAL": .droppable,
             // See `divergesFromKotlin` below.
             "DEVICE_LINK_APPROVAL": .unimplemented,
         ]

@@ -142,8 +142,14 @@ public class ObscuraClient {
     private var _messenger: Messenger?
     public private(set) var persistentSignalStore: PersistentSignalStore?
 
-    /// Security logger — set your own implementation or use the default PrintLogger.
-    public var logger: ObscuraLogger = PrintLogger()
+    private let recordingLogger: RecordingLogger
+
+    /// Security logger — assignments replace the forwarding destination while retaining the
+    /// bounded pull-based debug log.
+    public var logger: ObscuraLogger {
+        get { recordingLogger }
+        set { recordingLogger.setDelegate(newValue) }
+    }
 
     /// Session storage — kit persists session internally. Set before register/login.
     public var sessionStorage: SessionStorage?
@@ -303,14 +309,15 @@ public class ObscuraClient {
 
     /// In-memory client (tests). All state lost on dealloc.
     public init(apiURL: String, logger: ObscuraLogger = PrintLogger()) throws {
-        self.logger = logger
+        let recordingLogger = RecordingLogger(delegate: logger)
+        self.recordingLogger = recordingLogger
         self.sharedDb = nil
         self.api = APIClient(baseURL: apiURL)
         self.friends = try FriendStore()
         self.devices = try DeviceStore()
-        self.inbox = try InboxStore(onDiscard: Self.discardLogger(logger))
+        self.inbox = try InboxStore(onDiscard: Self.discardLogger(recordingLogger))
         self.entries = try EntryStore()
-        self.gateway = GatewayConnection(api: api, logger: logger)
+        self.gateway = GatewayConnection(api: api, logger: recordingLogger)
     }
 
     /// File-backed client (production). All state persists to `dataDirectory/obscura.sqlite`.
@@ -321,7 +328,8 @@ public class ObscuraClient {
     ///   `dataDirectory` to be an App Group container path, which is the caller's to supply.
     public init(apiURL: String, dataDirectory: String, userId: String? = nil,
                 keychainAccessGroup: String? = nil, logger: ObscuraLogger = PrintLogger()) throws {
-        self.logger = logger
+        let recordingLogger = RecordingLogger(delegate: logger)
+        self.recordingLogger = recordingLogger
 
         // Ensure directory exists with iOS Data Protection (encrypted at rest)
         try FileManager.default.createDirectory(
@@ -355,13 +363,13 @@ public class ObscuraClient {
         self.api = APIClient(baseURL: apiURL)
         self.friends = try FriendStore(db: db)
         self.devices = try DeviceStore(db: db)
-        self.inbox = try InboxStore(db: db, onDiscard: Self.discardLogger(logger))
+        self.inbox = try InboxStore(db: db, onDiscard: Self.discardLogger(recordingLogger))
         self.entries = try EntryStore(db: db)
-        self.gateway = GatewayConnection(api: api, logger: logger)
+        self.gateway = GatewayConnection(api: api, logger: recordingLogger)
 
         // Restore Signal store from persisted DB if identity exists
         let store = try PersistentSignalStore(db: db)
-        store.logger = logger
+        store.logger = recordingLogger
         if store.hasPersistedIdentity {
             self.persistentSignalStore = store
             self.identityKeyPair = try store.identityKeyPair(context: NullContext())
@@ -397,13 +405,13 @@ public class ObscuraClient {
         if let store = persistentSignalStore, store.hasPersistedIdentity {
             self.identityKeyPair = try? store.identityKeyPair(context: NullContext())
             self.registrationId = (try? store.localRegistrationId(context: NullContext())) ?? registrationId
-            self._messenger = Messenger(api: api, store: store, ownUserId: userId)
+            self._messenger = Messenger(api: api, store: store)
         } else {
             self.registrationId = registrationId
         }
 
-        if let deviceId = deviceId, let regId = self.registrationId {
-            await _messenger?.mapDevice(deviceId, userId: userId, registrationId: regId)
+        if let deviceId = deviceId {
+            await _messenger?.mapDevice(deviceId, userId: userId)
         }
         _authState = .authenticated
     }
@@ -541,23 +549,18 @@ public class ObscuraClient {
         let store = try initializeSignalStore(identity: identity, regId: regId, spkPrivate: spkPrivate, spkSig: spkSig, preKeyRecords: preKeyRecords)
 
         // 5. Messenger
-        self._messenger = Messenger(api: api, store: store, ownUserId: self.userId!)
+        self._messenger = Messenger(api: api, store: store)
 
         // Link approval and DeviceAnnounce require a complete own-device registry.
-        await recordOwnDevice(deviceName: "ObscuraKit-device",
-                              signalIdentityKey: Data(identity.publicKey.serialize()), registrationId: regId)
+        await recordOwnDevice(deviceName: "ObscuraKit-device")
 
         self._authState = .authenticated
     }
 
-    /// Record this device in the own-device registry. `deviceUUID == deviceId` by convention;
-    /// insertion is idempotent.
-    private func recordOwnDevice(deviceName: String, signalIdentityKey: Data, registrationId: UInt32) async {
+    /// Record this device in the own-device registry. Insertion is idempotent.
+    private func recordOwnDevice(deviceName: String) async {
         guard let did = self.deviceId else { return }
-        var device = OwnDevice(deviceUUID: did, deviceId: did, deviceName: deviceName)
-        device.signalIdentityKey = signalIdentityKey
-        device.registrationId = registrationId
-        await devices.addOwnDevice(device)
+        await devices.addOwnDevice(OwnDevice(deviceId: did, deviceName: deviceName))
     }
 
     /// Provision the current device with Signal keys. Requires token + userId already set.
@@ -592,11 +595,10 @@ public class ObscuraClient {
         await api.setToken(deviceResult.token)
 
         let store = try initializeSignalStore(identity: identity, regId: regId, spkPrivate: spkPrivate, spkSig: spkSig, preKeyRecords: preKeyRecords)
-        self._messenger = Messenger(api: api, store: store, ownUserId: userId)
+        self._messenger = Messenger(api: api, store: store)
 
         // Keep the own-device registry complete for linking and announcements.
-        await recordOwnDevice(deviceName: deviceName,
-                              signalIdentityKey: Data(identity.publicKey.serialize()), registrationId: regId)
+        await recordOwnDevice(deviceName: deviceName)
 
         self._authState = .authenticated
     }
@@ -647,14 +649,14 @@ public class ObscuraClient {
                 if let store = persistentSignalStore, store.hasPersistedIdentity {
                     self.identityKeyPair = try? store.identityKeyPair(context: NullContext())
                     self.registrationId = try? store.localRegistrationId(context: NullContext())
-                    self._messenger = Messenger(api: api, store: store, ownUserId: self.userId!)
-                    await _messenger?.mapDevice(identity.deviceId, userId: self.userId!, registrationId: self.registrationId ?? 0)
+                    self._messenger = Messenger(api: api, store: store)
+                    await _messenger?.mapDevice(identity.deviceId, userId: self.userId!)
                 }
                 self._authState = .authenticated
                 return .existingDevice
             } catch let error as APIClient.APIError {
                 // 404 → no such user. 401/403 → wrong password OR the device was
-                // revoked; fall through to a user-scoped login to distinguish.
+                // rejected local device; fall through to a user-scoped login to distinguish.
                 if error.status == 404 { return .userNotFound }
                 if error.status != 401 && error.status != 403 { throw error }
                 await rateLimitDelay()
@@ -677,7 +679,7 @@ public class ObscuraClient {
         }
 
         // Credentials valid. A local device that got rejected above means it was
-        // revoked → mismatch. Otherwise decide by the server's device count.
+        // Rejected local device → mismatch. Otherwise decide by the server's device count.
         if let identity = storedIdentity, !identity.deviceId.isEmpty {
             return .deviceMismatch
         }
@@ -728,15 +730,12 @@ public class ObscuraClient {
         await api.setToken(deviceResult.token)
 
         let store = try initializeSignalStore(identity: identity, regId: regId, spkPrivate: spkPrivate, spkSig: spkSig, preKeyRecords: preKeyRecords)
-        self._messenger = Messenger(api: api, store: store, ownUserId: self.userId!)
+        self._messenger = Messenger(api: api, store: store)
 
-        await devices.storeIdentity(DeviceIdentity(
-            coreUsername: username, deviceId: self.deviceId ?? "", deviceUUID: self.deviceId ?? ""
-        ))
+        await devices.storeIdentity(DeviceIdentity(deviceId: self.deviceId ?? ""))
 
         // Record the pending device locally; approval later reconciles the full account list.
-        await recordOwnDevice(deviceName: deviceName,
-                              signalIdentityKey: Data(identity.publicKey.serialize()), registrationId: regId)
+        await recordOwnDevice(deviceName: deviceName)
 
         _authState = .authenticated
         await rateLimitDelay()
@@ -1005,7 +1004,7 @@ public class ObscuraClient {
         case .accepted:
             return
         case .pendingReceived:
-            try await acceptFriend(targetUserId, username: existing?.username ?? targetUsername)
+            try await acceptFriend(targetUserId)
             return
         case .pendingSent, .none:
             break
@@ -1024,12 +1023,11 @@ public class ObscuraClient {
     /// Accept a friend request. Updates status to accepted.
     ///
     /// - Note: friendship changes are not copied to own devices after link time.
-    public func acceptFriend(_ targetUserId: String, username targetUsername: String) async throws {
+    public func acceptFriend(_ targetUserId: String) async throws {
         _ = try requireMessenger()
 
         var msg = Obscura_Client_V1_ClientMessage()
-        msg.friendResponse.username = username ?? ""
-        msg.friendResponse.accepted = true
+        msg.friendAccept = Obscura_Client_V1_FriendAccept()
         msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
 
         try await sendToAllDevices(targetUserId, msg)
@@ -1042,14 +1040,14 @@ public class ObscuraClient {
         var announce = Obscura_Client_V1_DeviceAnnounce()
         announce.devices = ownDevices.map { dev in
             var info = Obscura_Client_V1_DeviceInfo()
-            info.deviceID = dev.deviceId
-            info.deviceName = dev.deviceName
+            info.id = dev.deviceId
+            info.name = dev.deviceName
             return info
         }
-        announce.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
 
         var msg = Obscura_Client_V1_ClientMessage()
         msg.deviceAnnounce = announce
+        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
 
         let accepted = await friends.getAccepted()
         for friend in accepted {
@@ -1057,38 +1055,14 @@ public class ObscuraClient {
         }
     }
 
-    // MARK: - Session Reset
-
-    /// Delete all Signal sessions for a user and send SESSION_RESET message.
-    func resetSessionWith(_ targetUserId: String, reason: String = "manual") async throws {
-        await clearSessionsWithUser(targetUserId)
-
-        var msg = Obscura_Client_V1_ClientMessage()
-        msg.sessionReset.reason = reason
-        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
-        try await sendToAllDevices(targetUserId, msg)
-
-        // Delete the session that was just rebuilt to send the reset message.
-        // Forces next send to use a fresh PreKey exchange, which the receiver
-        // can handle after they also cleared their session.
-        await clearSessionsWithUser(targetUserId)
-    }
-
     /// Signal sessions are keyed on peer device UUID, so clearing a user means clearing each of
     /// that user's device sessions.
     /// `deleteAllSessions(for:)` matches on the address-name prefix, so passing a device UUID here
-    /// deletes exactly that device's session. (Mirrors Kotlin SessionResetService.clearSessionsWithUser.)
+    /// deletes exactly that device's session.
     private func clearSessionsWithUser(_ userId: String) async {
         guard let messenger = _messenger else { return }
         for deviceId in await messenger.getDeviceIdsForUser(userId) {
             try? persistentSignalStore?.deleteAllSessions(for: deviceId)
-        }
-    }
-
-    /// Reset Signal sessions with all accepted friends.
-    func resetAllSessions(reason: String = "manual") async throws {
-        for friend in await friends.getAccepted() {
-            try? await resetSessionWith(friend.userId, reason: reason)
         }
     }
 
@@ -1108,20 +1082,20 @@ public class ObscuraClient {
             }
         }
 
-        let identity = await devices.getIdentity()
+        if await devices.getOwnDevices().contains(where: { $0.deviceId == newDeviceId }) == false {
+            let deviceName = (try? await api.getDevice(newDeviceId))?.name ?? "Device"
+            await devices.addOwnDevice(OwnDevice(deviceId: newDeviceId, deviceName: deviceName))
+        }
         let ownDevices = await devices.getOwnDevices()
         let friendsData = await friends.getAll()
         let friendsExportData = Self.encodeFriendsForLink(friendsData)
 
         var approval = Obscura_Client_V1_DeviceLinkApproval()
-        if let pk = identity?.p2pPublicKey { approval.p2PPublicKey = pk }
-        if let sk = identity?.p2pPrivateKey { approval.p2PPrivateKey = sk }
-        if let rk = identity?.recoveryPublicKey { approval.recoveryPublicKey = rk }
         approval.challengeResponse = challengeResponse
         approval.ownDevices = ownDevices.map { d in
             var info = Obscura_Client_V1_DeviceInfo()
-            info.deviceID = d.deviceId
-            info.deviceName = d.deviceName
+            info.id = d.deviceId
+            info.name = d.deviceName
             return info
         }
         approval.friendsExport = friendsExportData
@@ -1142,14 +1116,8 @@ public class ObscuraClient {
     /// Generate a link code for this device. Display as QR code or copyable text.
     /// The new device calls this, the existing device scans/validates it.
     public func generateLinkCode() -> String? {
-        guard let deviceId = deviceId,
-              let identityKeyPair = identityKeyPair else { return nil }
-        let deviceUUID = deviceId // Use deviceId as UUID for now
-        return DeviceLink.generateLinkCode(
-            deviceId: deviceId,
-            deviceUUID: deviceUUID,
-            signalIdentityKey: Data(identityKeyPair.publicKey.serialize())
-        )
+        guard let deviceId else { return nil }
+        return DeviceLink.generateLinkCode(deviceId: deviceId)
     }
 
     /// Validate a link code and approve the device link.
@@ -1176,7 +1144,8 @@ public class ObscuraClient {
             try await messenger.processServerBundle(newDeviceBundle, userId: userId!)
 
             // Add new device to own device list
-            let newDevice = OwnDevice(deviceUUID: code.deviceUUID, deviceId: code.deviceId, deviceName: code.deviceId)
+            let deviceName = (try? await api.getDevice(code.deviceId))?.name ?? "Device"
+            let newDevice = OwnDevice(deviceId: code.deviceId, deviceName: deviceName)
             await devices.addOwnDevice(newDevice)
 
             // Approve the new device, then announce the updated device list.
@@ -1214,10 +1183,10 @@ public class ObscuraClient {
         }
 
         let store = try initializeSignalStore(identity: identity, regId: regId, spkPrivate: spkPrivate, spkSig: spkSig, preKeyRecords: preKeyRecords)
-        self._messenger = Messenger(api: api, store: store, ownUserId: self.userId!)
+        self._messenger = Messenger(api: api, store: store)
 
         if let did = deviceId, let uid = userId {
-            await _messenger?.mapDevice(did, userId: uid, registrationId: regId)
+            await _messenger?.mapDevice(did, userId: uid)
         }
     }
 
@@ -1236,14 +1205,14 @@ public class ObscuraClient {
 
     /// Download ciphertext and decrypt with provided key material.
     /// Checks in-DB cache first — returns instantly on hit.
-    public func downloadDecryptedAttachment(id: String, contentKey: Data, nonce: Data, expectedHash: Data? = nil) async throws -> Data {
+    public func downloadDecryptedAttachment(id: String, contentKey: Data, nonce: Data) async throws -> Data {
         // Cache hit — return immediately, zero network
         if let cached = await attachmentCache?.get(id) {
             return cached
         }
         // Cache miss — fetch, decrypt, cache
         let ciphertext = try await api.fetchAttachment(id)
-        let plaintext = try AttachmentCrypto.decrypt(ciphertext, contentKey: contentKey, nonce: nonce, expectedHash: expectedHash)
+        let plaintext = try AttachmentCrypto.decrypt(ciphertext, contentKey: contentKey, nonce: nonce)
         await attachmentCache?.put(id, plaintext: plaintext)
         return plaintext
     }
@@ -1330,78 +1299,60 @@ public class ObscuraClient {
         }
     }
 
-    // ── Ephemeral signals (typing, read receipts) ────────────────────────────────────────────
-    //
-    // modelKey is an opaque conversation namespace; the kit neither parses nor validates it.
+    // ── Ephemeral typing signals ──────────────────────────────────────────────────────────────
 
-    /// Announce that this user is typing in a conversation.
+    /// Send an explicit typing state to the caller-named recipients.
     ///
-    /// Throttled to at most once every 2s. Delivered to the conversation's participants only — never
-    /// broadcast; the audience comes from the canonical two-party `conversationId`, and a value that
-    /// does not name exactly two participants is dropped rather than widened.
-    public func sendTyping(modelKey: String, conversationId: String) async {
-        await sendSignalDirect(modelKey: modelKey, kind: "typing", conversationId: conversationId)
+    /// The context id is opaque. As with application entries, the kit never derives or broadens
+    /// the audience from it.
+    public func sendTyping(
+        to recipientUserIds: [String],
+        contextId: String,
+        state: TypingState
+    ) async {
+        guard !contextId.isEmpty, let ownDeviceId = deviceId else { return }
+        guard await TypingThrottle.shared.shouldSend(
+            contextId: contextId, state: state, senderDeviceId: ownDeviceId
+        ) else { return }
+
+        var signal = Obscura_Client_V1_TypingSignal()
+        signal.contextID = contextId
+        signal.state = WireCodec.encodeTypingState(state)
+
+        var msg = Obscura_Client_V1_ClientMessage()
+        msg.typingSignal = signal
+        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        var seen = Set<String>()
+        for recipient in recipientUserIds where
+            recipient != userId && seen.insert(recipient).inserted
+        {
+            do {
+                try await sendToAllDevices(recipient, msg)
+            } catch {
+                logger.log("typing signal to \(recipient.prefix(8)) failed: \(error)")
+            }
+        }
     }
 
-    /// Explicitly stop typing.
-    public func stopTyping(modelKey: String, conversationId: String) async {
-        await sendSignalDirect(modelKey: modelKey, kind: "stoppedTyping", conversationId: conversationId)
-    }
-
-    /// Who is currently typing in a conversation, by display name.
+    /// Who is currently typing in a context, by display name.
     ///
     /// Auto-expires; a signal with no refresh disappears on its own, which is what makes signals
     /// droppable (`KIT_API.md` §4) rather than something the inbox has to carry.
-    public nonisolated func observeTyping(modelKey: String, conversationId: String) -> SignalObservation {
-        SignalObservation(
-            store: SignalStoreRegistry.shared.store,
-            model: modelKey,
-            signal: SignalType.typing.rawValue,
-            data: ["conversationId": conversationId]
-        )
-    }
-
-    private func sendSignalDirect(modelKey: String, kind: String, conversationId: String) async {
-        if kind == "typing" {
-            let key = "typing:\(modelKey):\(conversationId)"
-            let now = Date()
-            if let last = SignalThrottle.shared.lastSent[key], now.timeIntervalSince(last) < 2.0 { return }
-            SignalThrottle.shared.lastSent[key] = now
-        }
-
-        var signal = Obscura_Client_V1_ModelSignal()
-        signal.model = modelKey
-        signal.kind = WireCodec.encodeSignalKind(kind)
-        signal.contextID = conversationId
-
-        var msg = Obscura_Client_V1_ClientMessage()
-        msg.modelSignal = signal
-        msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
-        guard let msgData = try? msg.serializedData() else { return }
-
-        guard let localUserId = userId,
-              let participants = parseCanonicalTwoPartyContext(conversationId),
-              participants.contains(localUserId),
-              let remoteUserId = participants.first(where: { $0 != localUserId }),
-              await friends.isFriend(remoteUserId)
-        else {
-            logger.log("signal dropped: contextId is not a canonical accepted two-party conversation")
-            return
-        }
-        try? await sendSerializedClientMessage(to: remoteUserId, data: msgData)
+    public nonisolated func observeTyping(contextId: String) -> TypingObservation {
+        TypingObservation(tracker: TypingStateRegistry.shared.tracker, contextId: contextId)
     }
 
     // MARK: - Facade (high-level methods for thin bridges)
 
     /// Typed event for the unified event stream.
     public enum ObscuraEvent {
-        case friendsUpdated([Friend])
+        case friendsChanged
         case connectionChanged(ConnectionState)
         case authChanged(AuthState)
         case messageReceived(model: String)
-        case typingChanged(conversationId: String, typers: [String])
+        case typingChanged(contextId: String, typers: [String])
         case authFailed(reason: String)
-        case debugLog(String)
     }
 
     /// Unified event stream — bridge subscribes once and relays all events.
@@ -1409,8 +1360,8 @@ public class ObscuraClient {
         AsyncStream { continuation in
             // Friends
             let friendTask = Task {
-                for await allFriends in friends.observeAll().values {
-                    continuation.yield(.friendsUpdated(allFriends))
+                for await _ in friends.observeAll().values {
+                    continuation.yield(.friendsChanged)
                 }
             }
             // Connection
@@ -1419,6 +1370,7 @@ public class ObscuraClient {
                     continuation.yield(.connectionChanged(state))
                 }
             }
+
             // Auth
             let authTask = Task {
                 for await state in observeAuthState() {
@@ -1452,6 +1404,16 @@ public class ObscuraClient {
                 authFailedTask.cancel()
             }
         }
+    }
+
+    /// Current friend rows. Aggregate wake events intentionally carry no copies of this payload.
+    public func getFriends() async -> [Friend] {
+        await friends.getAll()
+    }
+
+    /// Snapshot of the bounded debug ring, newest first. Debug lines are never live events.
+    public func getDebugLog() -> [String] {
+        recordingLogger.snapshot()
     }
 
     /// Decode a friend code and send a friend request.
@@ -1493,6 +1455,7 @@ public class ObscuraClient {
         _connectionState = .disconnected
         _authState = .loggedOut
         messageQueue.removeAll()
+        await TypingStateRegistry.shared.tracker.clearAll()
 
         // Clear persisted session
         sessionStorage?.clear()
@@ -1581,7 +1544,7 @@ public class ObscuraClient {
         await api.clearToken()
     }
 
-    /// Nuclear wipe — clears ALL data from this device. Use for device revocation or account deletion.
+    /// Nuclear wipe — clears all data from this device.
     /// After this, the device must re-register or loginAndProvision.
     public func wipeDevice() async throws {
         try await logout()
@@ -1594,7 +1557,7 @@ public class ObscuraClient {
         try? await entries.wipe()
         // The §3.3 rule 2 carve-out, and the reason it is worded as a MUST: the inbox holds
         // DECRYPTED plaintext — full payloads, the resolved sender name, the model key. A wipe that
-        // spared it would leave exactly the content a revocation is meant to destroy.
+        // spared it would leave decrypted application content behind.
         try? await inbox.wipe()
     }
 
@@ -1751,7 +1714,6 @@ public class ObscuraClient {
                 username: {
                     switch clientMsg.payload {
                     case .friendRequest?: return clientMsg.friendRequest.username
-                    case .friendResponse?: return clientMsg.friendResponse.username
                     default: return ""
                     }
                 }(),
@@ -1825,7 +1787,7 @@ public class ObscuraClient {
                 if existing.status == .pendingSent {
                     // Crossed requests are mutual consent. Accepting here prevents both peers from
                     // remaining permanently pending when they scan each other's codes.
-                    try await acceptFriend(sourceUserId, username: existing.username)
+                    try await acceptFriend(sourceUserId)
                     logger.log("crossed friend request from \(sourceUserId) promoted to accepted")
                     return true
                 }
@@ -1846,83 +1808,27 @@ public class ObscuraClient {
                 try await friends.add(sourceUserId, msg.friendRequest.username, status: .pendingReceived)
             }
 
-        case .friendResponse?:
-            // A response is valid only for a request we sent. Delivery alone must not let an
+        case .friendAccept?:
+            // An acceptance is valid only for a request we sent. Delivery alone must not let an
             // authenticated stranger insert itself as an accepted friend.
-            if msg.friendResponse.accepted {
-                let existing = await friends.getFriend(sourceUserId)
-                if let existing, existing.status == .pendingSent {
-                    // Promote in place: updateStatus keeps the name WE recorded when we sent the
-                    // request. The payload username is not consulted (SPEC §0.5).
-                    try await friends.updateStatus(sourceUserId, .accepted)
-                } else {
-                    logger.log("ignoring unsolicited FRIEND_RESPONSE from \(sourceUserId) "
-                        + "(local status=\(existing?.status.rawValue ?? "none"); expected pendingSent)")
-                }
+            let existing = await friends.getFriend(sourceUserId)
+            if let existing, existing.status == .pendingSent {
+                try await friends.updateStatus(sourceUserId, .accepted)
+            } else {
+                logger.log("ignoring unsolicited FRIEND_ACCEPT from \(sourceUserId) "
+                    + "(local status=\(existing?.status.rawValue ?? "none"); expected pendingSent)")
             }
 
         case .deviceAnnounce?:
             let announce = msg.deviceAnnounce
             let deviceInfos = announce.devices.map { dev -> [String: String] in
-                ["deviceId": dev.deviceID, "deviceName": dev.deviceName]
+                ["deviceId": dev.id, "deviceName": dev.name]
             }
-            let deviceIds = announce.devices.map(\.deviceID)
-
-            // ── Trust on first use ───────────────────────────────────────────────────────────
-            //
-            // This check was DEAD BY CONSTRUCTION. `friends.recovery_public_key` was read here and
-            // written in exactly no place — neither `FriendStore.add` nor `updateDevices` touched
-            // the column and there was no setter — so the `if let` never fired and every
-            // DEVICE_ANNOUNCE from every sender was accepted unverified. That is what made the
-            // timestamp trap below remotely reachable by anyone who can deliver a message, which is
-            // anyone authenticated: friendship is not required to send.
-            //
-            // The key is now PINNED from the first announce that carries one, and verified against
-            // the STORED copy forever after. Verifying against `announce.recoveryPublicKey` —
-            // the key riding inside the very message being authenticated — would authenticate
-            // nothing at all, since the sender picks both halves; that is the defect the Kotlin kit
-            // has and is fixing separately. `client.proto` describes the field as "for friend to
-            // verify FUTURE revocation signatures": pinned, then used.
-            //
-            // A peer that has never sent a key is still accepted unverified. That is TOFU's
-            // premise, not an oversight — there is nothing to check against until a first key
-            // arrives, and refusing every announce until then would break device fan-out outright.
-            let pinnedKey = await friends.getFriend(sourceUserId)?.recoveryPublicKey
-            if let pinnedKey, !pinnedKey.isEmpty {
-                // Signed over the RAW wire timestamp, not the clamped one — the signature covers
-                // what the sender actually sent.
-                let signedPayload = RecoveryKeys.serializeAnnounceForSigning(
-                    deviceIds: deviceIds, timestamp: announce.timestamp, isRevocation: announce.isRevocation
-                )
-                guard RecoveryKeys.verify(publicKey: pinnedKey, data: signedPayload,
-                                          signature: announce.signature) else {
-                    logger.log("DEVICE_ANNOUNCE from \(sourceUserId.prefix(8)) does not verify "
-                        + "against the pinned recovery key — rejected")
-                    break
-                }
-            } else if !announce.recoveryPublicKey.isEmpty {
-                try await friends.pinRecoveryPublicKey(sourceUserId, announce.recoveryPublicKey)
-                logger.log("pinned recovery public key for \(sourceUserId.prefix(8)) "
-                    + "from its first DEVICE_ANNOUNCE (trust on first use)")
-            }
-
-            // CLAMPED. Two bugs at one site, both from binding a peer's `uint64` straight into
-            // SQLite. (1) `updateDevices` binds it THREE times and GRDB's `UInt64` binding is the
-            // non-failable `Int64(self)`, so anything above `Int64.max` TRAPS — uncatchable, so the
-            // do/catch in `processEnvelope` cannot save the process. (2) Even below that, a merely
-            // huge value is stored in `devices_updated_at`, and the LWW guard
-            // `WHERE devices_updated_at < ?` is then false forever: that peer's device list can
-            // never be updated again, so one friend with a broken clock permanently freezes their
-            // own fan-out. Clamping to now+60s fixes both.
             try await friends.updateDevices(sourceUserId, devices: deviceInfos,
-                                            timestamp: clampFutureTimestamp(announce.timestamp))
+                                            timestamp: clampFutureTimestamp(msg.timestamp))
 
-        case .modelSignal?:
-            await handleModelSignal(msg, sourceUserId: sourceUserId, senderDeviceId: senderDeviceId)
-
-        case .sessionReset?:
-            // Sessions are keyed on device UUID, so reset every session for this user.
-            await clearSessionsWithUser(sourceUserId)
+        case .typingSignal?:
+            await handleTypingSignal(msg, sourceUserId: sourceUserId, senderDeviceId: senderDeviceId)
 
         default:
             // A kit-internal arm with no handler must NOT be acked — the ack would destroy the only
@@ -1937,44 +1843,28 @@ public class ObscuraClient {
         return true
     }
 
-    internal func handleModelSignal(
+    internal func handleTypingSignal(
         _ msg: Obscura_Client_V1_ClientMessage,
         sourceUserId: String,
         senderDeviceId: String
     ) async {
-        let sig = msg.modelSignal
-        let signalName = WireCodec.decodeSignalKind(sig.kind)
-        guard !sig.model.isEmpty, !signalName.isEmpty else { return }
-
-        guard let localUserId = userId,
-              let participants = parseCanonicalTwoPartyContext(sig.contextID),
-              participants.contains(localUserId),
-              participants.contains(sourceUserId),
-              await friends.isFriend(sourceUserId)
-        else {
-            logger.log("inbound model signal dropped: contextId is not the authenticated accepted conversation")
-            return
-        }
+        let signal = msg.typingSignal
+        guard !signal.contextID.isEmpty,
+              let state = WireCodec.decodeTypingState(signal.state) else { return }
 
         let username = await friends.getAccepted()
             .first(where: { $0.userId == sourceUserId })?.username ?? sourceUserId
-        let payload = ModelSignalPayload(
-            model: sig.model,
-            signalRaw: signalName,
-            conversationId: sig.contextID,
-            senderUsername: username,
-            authorDeviceId: senderDeviceId,
-            timestamp: msg.timestamp
-        )
-        if signalName == "stoppedTyping" {
-            await SignalStoreRegistry.shared.store.remove(
-                model: sig.model,
-                signal: "typing",
-                data: payload.data,
-                authorDeviceId: senderDeviceId
-            )
+        if state == .stopped {
+            await TypingStateRegistry.shared.tracker.remove(
+                contextId: signal.contextID, senderDeviceId: senderDeviceId)
         } else {
-            await SignalStoreRegistry.shared.store.receive(payload)
+            await TypingStateRegistry.shared.tracker.receive(TypingEvent(
+                contextId: signal.contextID,
+                senderUserId: sourceUserId,
+                senderDeviceId: senderDeviceId,
+                senderDisplayName: username,
+                timestamp: msg.timestamp
+            ))
         }
     }
 
@@ -1996,7 +1886,7 @@ public class ObscuraClient {
         let sync = msg.appEntry
 
         let inserted = try await inbox.put(
-            InboxRecord(
+            InboxInsert(
                 envelopeId: envelopeId,
                 // Must match Kotlin byte for byte — the app reads one `kind` column from two kits,
                 // and §4.1 has pix's drain BRANCH on it. WireCodec returns "" for an unset payload,
@@ -2004,13 +1894,8 @@ public class ObscuraClient {
                 // share the UNKNOWN sentinel.
                 kind: WireCodec.decodeMessageType(msg.payload).isEmpty
                     ? "UNKNOWN" : WireCodec.decodeMessageType(msg.payload),
-                receivedAt: UInt64(Date().timeIntervalSince1970 * 1000),
                 senderUserId: sourceUserId,
                 senderDeviceId: senderDeviceId,
-                // SPEC §0.5: the name comes from OUR friend graph, keyed on the authenticated
-                // sender, never from the payload. Nil when they are not a friend — §7 covers what
-                // the app should show then, and it is not a peer-chosen string.
-                senderDisplayName: await friends.getFriend(sourceUserId)?.username,
                 // AppEntry-derived, so nil for an unknown arm — there is nothing to derive from.
                 modelKey: isAppEntry ? sync.model : nil,
                 entryId: isAppEntry ? sync.id : nil,
@@ -2040,14 +1925,14 @@ public class ObscuraClient {
     ///    `Int64.max` TRAPS. A Swift trap is not catchable, so `processEnvelope`'s do/catch cannot
     ///    contain it: the process dies. Any authenticated user can deliver a message — friendship
     ///    is not required — so this is a remote kill with no privileges. The same bug class was
-    ///    fixed once in `Wire/ModelSignal.swift`; the sweep stopped at that one call site.
+    ///    also applies to the ephemeral typing timestamp.
     /// 2. **It is an ordering fix.** Without it a peer sets a timestamp far in the future and wins
     ///    every LWW/REPLACE conflict forever — a tie-break can only order writes it can compare
     ///    honestly. On `friends.devices_updated_at` this is permanent: the guard
     ///    `WHERE devices_updated_at < ?` never passes again.
     ///
-    /// Clamping toward now rather than rejecting matches what `ModelSignal.receive` does with the
-    /// same untrusted value, and keeps a peer whose clock is a few seconds fast working normally.
+    /// Clamping toward now rather than rejecting keeps a peer whose clock is a few seconds fast
+    /// working normally.
     private func clampFutureTimestamp(_ sentAt: UInt64) -> UInt64 {
         min(sentAt, UInt64(Date().timeIntervalSince1970 * 1000) + 60_000)
     }

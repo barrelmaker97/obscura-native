@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 /// Bridges GRDB ValueObservation to Swift AsyncSequence.
-/// Views subscribe once — GRDB pushes changes on every write.
+/// Store observations use this internally to drive payload-free facade wake events.
 ///
 /// Usage in SwiftUI:
 /// ```swift
@@ -15,8 +15,10 @@ import GRDB
 ///             Text(friend.username)
 ///         }
 ///         .task {
-///             for await updated in client.friends.observeAccepted().values {
-///                 friends = updated
+///             for await event in client.observeEvents() {
+///                 if case .friendsChanged = event {
+///                     friends = await client.getFriends()
+///                 }
 ///             }
 ///         }
 ///     }

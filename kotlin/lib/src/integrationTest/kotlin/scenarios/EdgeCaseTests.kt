@@ -27,9 +27,8 @@ class EdgeCaseTests {
         assertEquals(ConnectionState.CONNECTED, alice.connectionState.value)
 
         val small = ByteArray(100) { it.toByte() }
-        val (id, expiresAt) = alice.uploadAttachment(small)
+        val id = alice.uploadAttachment(small)
         assertTrue(id.isNotEmpty(), "Attachment ID should be non-empty")
-        assertTrue(expiresAt > 0, "Expiration should be positive")
 
         val downloaded = alice.downloadAttachment(id)
         assertArrayEquals(small, downloaded, "Downloaded content must match uploaded")
@@ -46,7 +45,7 @@ class EdgeCaseTests {
         assertEquals(AuthState.AUTHENTICATED, alice.authState.value)
 
         val medium = ByteArray(500 * 1024) { (it % 256).toByte() } // 500KB
-        val (id, _) = alice.uploadAttachment(medium)
+        val id = alice.uploadAttachment(medium)
         assertTrue(id.isNotEmpty(), "Attachment ID should be non-empty")
 
         val downloaded = alice.downloadAttachment(id)

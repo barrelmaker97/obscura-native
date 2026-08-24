@@ -1,9 +1,43 @@
 import XCTest
 @testable import ObscuraKit
 
-/// Test reactive observation — GRDB ValueObservation pushes changes to AsyncStream.
-/// These prove that SwiftUI views will re-render automatically on data changes.
+/// Test canonical store observation and its payload-free bridge-facing wake event.
 final class ObservationTests: XCTestCase {
+
+    func testAggregateFriendEventIsPayloadFreeAndHostPullsCurrentRows() async throws {
+        let client = try ObscuraClient(apiURL: "https://example.com", logger: NoOpLogger())
+        let initialWake = expectation(description: "initial friends wake")
+        let changedWake = expectation(description: "changed friends wake")
+
+        let task = Task {
+            var wakeCount = 0
+            for await event in client.observeEvents() {
+                guard case .friendsChanged = event else { continue }
+                wakeCount += 1
+                if wakeCount == 1 {
+                    initialWake.fulfill()
+                } else {
+                    changedWake.fulfill()
+                    break
+                }
+            }
+        }
+
+        await fulfillment(of: [initialWake], timeout: 5)
+        try await client.friends.add("alice-id", "alice", status: .accepted)
+        await fulfillment(of: [changedWake], timeout: 5)
+        task.cancel()
+
+        let friends = await client.getFriends()
+        XCTAssertEqual(friends.map(\.userId), ["alice-id"])
+    }
+
+    func testDebugLogIsPulledRatherThanEmitted() throws {
+        let client = try ObscuraClient(apiURL: "https://example.com", logger: NoOpLogger())
+        client.logger.log("pull-only-marker")
+
+        XCTAssertTrue(client.getDebugLog().contains("pull-only-marker"))
+    }
 
     // MARK: - Friends observation
 
@@ -90,7 +124,7 @@ final class ObservationTests: XCTestCase {
 
         try await Task.sleep(nanoseconds: 100_000_000)
 
-        await actor.addOwnDevice(OwnDevice(deviceUUID: "uuid1", deviceId: "dev1", deviceName: "iPhone"))
+        await actor.addOwnDevice(OwnDevice(deviceId: "dev1", deviceName: "iPhone"))
 
         await fulfillment(of: [expectation], timeout: 5)
         task.cancel()

@@ -13,7 +13,6 @@ interface ObscuraLogger {
     fun preKeyReplenishFailed(reason: String)
     fun identityChanged(address: String)
     fun sessionEstablishFailed(userId: String, reason: String)
-    fun signatureVerificationFailed(sourceUserId: String, messageType: String)
     fun databaseError(store: String, operation: String, reason: String)
 }
 
@@ -26,7 +25,6 @@ object NoOpLogger : ObscuraLogger {
     override fun preKeyReplenishFailed(reason: String) {}
     override fun identityChanged(address: String) {}
     override fun sessionEstablishFailed(userId: String, reason: String) {}
-    override fun signatureVerificationFailed(sourceUserId: String, messageType: String) {}
     override fun databaseError(store: String, operation: String, reason: String) {}
 }
 
@@ -39,6 +37,5 @@ object PrintLogger : ObscuraLogger {
     override fun preKeyReplenishFailed(reason: String) = log("prekey replenish failed: $reason")
     override fun identityChanged(address: String) = log("identity changed for $address")
     override fun sessionEstablishFailed(userId: String, reason: String) = log("session establish failed for $userId: $reason")
-    override fun signatureVerificationFailed(sourceUserId: String, messageType: String) = log("signature verification failed from $sourceUserId type=$messageType")
     override fun databaseError(store: String, operation: String, reason: String) = log("db error in $store.$operation: $reason")
 }

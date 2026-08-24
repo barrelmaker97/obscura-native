@@ -37,7 +37,7 @@ final class MultiDeviceFanOutTests: XCTestCase {
         XCTAssertEqual(req2.type, "FRIEND_REQUEST", "Bob2 should get FRIEND_REQUEST")
 
         try await bob1.acceptFriend(alice.userId!)
-        _ = try await alice.waitForMessage(timeout: 10) // FRIEND_RESPONSE
+        _ = try await alice.waitForMessage(timeout: 10) // FRIEND_ACCEPT
 
         try await alice.client.send(
             to: [bob1.userId!],

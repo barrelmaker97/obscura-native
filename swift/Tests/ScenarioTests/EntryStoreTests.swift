@@ -17,9 +17,15 @@ final class EntryStoreTests: XCTestCase {
         _ id: String,
         data: String = #"{"content":"hi"}"#,
         sentAt: UInt64 = 1_000,
-        device: String = "device_a"
+        device: String = "device_a",
+        localMetadata: String? = nil
     ) -> StoredEntry {
-        StoredEntry(id: id, data: data, sentAt: sentAt, authorDeviceId: device)
+        StoredEntry(
+            id: id,
+            data: data,
+            sentAt: sentAt,
+            authorDeviceId: device,
+            localMetadata: localMetadata)
     }
 
     func testPutThenAllReturnsWhatWasWritten() async throws {
@@ -33,6 +39,7 @@ final class EntryStoreTests: XCTestCase {
         XCTAssertEqual(all[0].data, #"{"content":"hi"}"#)
         XCTAssertEqual(all[0].sentAt, 1_000)
         XCTAssertEqual(all[0].authorDeviceId, "device_a")
+        XCTAssertNil(all[0].localMetadata)
     }
 
     /// `put` is a blind upsert: an older write replaces a newer one,
@@ -109,5 +116,29 @@ final class EntryStoreTests: XCTestCase {
 
         XCTAssertEqual(stored.first?.sentAt, 1_700_000_000_123)
         XCTAssertEqual(stored.first?.authorDeviceId, "device_zzz")
+    }
+
+    func testLocalMetadataRoundTripsVerbatimAndRemainsNullable() async throws {
+        let store = try makeStore()
+        let metadata = #"{"uploadState":"complete","attempts":2}"#
+        try await store.put(
+            model: "pix", entry: entry("with_meta", localMetadata: metadata))
+        try await store.put(model: "pix", entry: entry("without_meta"))
+
+        let stored = try await store.all(model: "pix")
+        let byID = Dictionary(uniqueKeysWithValues: stored.map { ($0.id, $0) })
+
+        XCTAssertEqual(byID["with_meta"]?.localMetadata, metadata)
+        XCTAssertNil(byID["without_meta"]?.localMetadata)
+    }
+
+    func testPutReplacesLocalMetadataWithTheAppSuppliedValue() async throws {
+        let store = try makeStore()
+        try await store.put(
+            model: "pix", entry: entry("pix_1", localMetadata: #"{"state":"pending"}"#))
+        try await store.put(model: "pix", entry: entry("pix_1", localMetadata: nil))
+
+        let stored = try await store.all(model: "pix")
+        XCTAssertNil(stored.first?.localMetadata)
     }
 }

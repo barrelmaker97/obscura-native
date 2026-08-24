@@ -12,9 +12,82 @@ public protocol ObscuraLogger: Sendable {
     func sessionEstablishFailed(userId: String, error: String)
     func tokenRefreshFailed(attempt: Int, error: String)
     func identityChanged(address: String)
-    func signatureVerificationFailed(sourceUserId: String, messageType: String)
-    func unauthorizedSync(sourceUserId: String, messageType: String)
     func databaseError(store: String, operation: String, error: String)
+}
+
+/// Thread-safe bounded log recorder that also forwards to the host-provided logger.
+final class RecordingLogger: ObscuraLogger, @unchecked Sendable {
+    private let lock = NSLock()
+    private var delegate: ObscuraLogger
+    private var entries: [String] = []
+    private let capacity: Int
+
+    init(delegate: ObscuraLogger, capacity: Int = 200) {
+        self.delegate = delegate
+        self.capacity = capacity
+    }
+
+    func setDelegate(_ delegate: ObscuraLogger) {
+        guard (delegate as AnyObject) !== self else { return }
+        lock.lock()
+        self.delegate = delegate
+        lock.unlock()
+    }
+
+    func snapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries
+    }
+
+    private func record(_ message: String) -> ObscuraLogger {
+        lock.lock()
+        entries.insert(message, at: 0)
+        if entries.count > capacity {
+            entries.removeLast(entries.count - capacity)
+        }
+        let current = delegate
+        lock.unlock()
+        return current
+    }
+
+    func log(_ message: String) {
+        record(message).log(message)
+    }
+
+    func decryptFailed(sourceUserId: String, error: String) {
+        record("decrypt failed from \(sourceUserId): \(error)")
+            .decryptFailed(sourceUserId: sourceUserId, error: error)
+    }
+
+    func ackFailed(envelopeId: String, error: String) {
+        record("ack failed for \(envelopeId): \(error)")
+            .ackFailed(envelopeId: envelopeId, error: error)
+    }
+
+    func frameParseFailed(byteCount: Int, error: String) {
+        record("frame parse failed (\(byteCount) bytes): \(error)")
+            .frameParseFailed(byteCount: byteCount, error: error)
+    }
+
+    func sessionEstablishFailed(userId: String, error: String) {
+        record("session establish failed for \(userId): \(error)")
+            .sessionEstablishFailed(userId: userId, error: error)
+    }
+
+    func tokenRefreshFailed(attempt: Int, error: String) {
+        record("token refresh failed (attempt \(attempt)): \(error)")
+            .tokenRefreshFailed(attempt: attempt, error: error)
+    }
+
+    func identityChanged(address: String) {
+        record("identity changed for \(address)").identityChanged(address: address)
+    }
+
+    func databaseError(store: String, operation: String, error: String) {
+        record("db error in \(store).\(operation): \(error)")
+            .databaseError(store: store, operation: operation, error: error)
+    }
 }
 
 /// Default implementation that prints to stderr. Replace with your own for production.
@@ -43,12 +116,6 @@ public final class PrintLogger: ObscuraLogger, @unchecked Sendable {
     public func identityChanged(address: String) {
         log("identity changed for \(address)")
     }
-    public func signatureVerificationFailed(sourceUserId: String, messageType: String) {
-        log("signature verification failed from \(sourceUserId) type=\(messageType)")
-    }
-    public func unauthorizedSync(sourceUserId: String, messageType: String) {
-        log("unauthorized sync from \(sourceUserId) type=\(messageType)")
-    }
     public func databaseError(store: String, operation: String, error: String) {
         log("db error in \(store).\(operation): \(error)")
     }
@@ -64,7 +131,5 @@ public final class NoOpLogger: ObscuraLogger, @unchecked Sendable {
     public func sessionEstablishFailed(userId: String, error: String) {}
     public func tokenRefreshFailed(attempt: Int, error: String) {}
     public func identityChanged(address: String) {}
-    public func signatureVerificationFailed(sourceUserId: String, messageType: String) {}
-    public func unauthorizedSync(sourceUserId: String, messageType: String) {}
     public func databaseError(store: String, operation: String, error: String) {}
 }

@@ -10,6 +10,5 @@ class ClientSession {
     var deviceId: String? = null
     var username: String? = null
     var refreshToken: String? = null
-    var registrationId: Int = 0
     var pendingLinkChallenge: ByteArray? = null // set during generateLinkCode(), verified on approval
 }

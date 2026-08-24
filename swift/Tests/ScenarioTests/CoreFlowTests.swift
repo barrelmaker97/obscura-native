@@ -44,7 +44,7 @@ final class CoreFlowTests: XCTestCase {
         try await bob.connect()
         try await alice.befriend(bobUserId, username: bobUsername)
         _ = try await bob.waitForMessage(timeout: 10)
-        try await bob.acceptFriend(aliceUserId, username: aliceUsername)
+        try await bob.acceptFriend(aliceUserId)
         _ = try await alice.waitForMessage(timeout: 10)
 
         let aliceFriend = await alice.friends.getFriend(bobUserId)

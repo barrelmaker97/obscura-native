@@ -2,7 +2,6 @@ package com.obscura.kit.stores
 
 import com.obscura.kit.newInMemoryDatabase
 import kotlinx.coroutines.test.runTest
-import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -46,43 +45,39 @@ class FriendStoreTest {
     fun `add with devices round-trips the device list`() = runTest {
         val d = newDomain()
         val devices = listOf(
-            FriendDeviceInfo(deviceUuid = "uuid-1", deviceId = "dev-1",
-                deviceName = "Pixel", registrationId = 100),
-            FriendDeviceInfo(deviceUuid = "uuid-2", deviceId = "dev-2",
-                deviceName = "iPhone", registrationId = 200)
+            FriendDeviceInfo(id = "dev-1", name = "Pixel"),
+            FriendDeviceInfo(id = "dev-2", name = "iPhone")
         )
         d.add("u1", "alice", FriendStatus.ACCEPTED, devices)
 
         val loaded = d.get("u1")!!
         assertEquals(2, loaded.devices.size)
-        val byId = loaded.devices.associateBy { it.deviceId }
-        assertEquals("Pixel", byId["dev-1"]?.deviceName)
-        assertEquals(100, byId["dev-1"]?.registrationId)
-        assertEquals("iPhone", byId["dev-2"]?.deviceName)
-        assertEquals(200, byId["dev-2"]?.registrationId)
+        val byId = loaded.devices.associateBy { it.id }
+        assertEquals("Pixel", byId["dev-1"]?.name)
+        assertEquals("iPhone", byId["dev-2"]?.name)
     }
 
     @Test
     fun `updateDevices replaces the device list while preserving username and status`() = runTest {
         val d = newDomain()
         d.add("u1", "alice", FriendStatus.ACCEPTED, listOf(
-            FriendDeviceInfo("uuid-x", "dev-x", "Old", 1)
+            FriendDeviceInfo("dev-x", "Old")
         ))
         d.updateDevices("u1", listOf(
-            FriendDeviceInfo("uuid-y", "dev-y", "New", 2)
+            FriendDeviceInfo("dev-y", "New")
         ))
 
         val loaded = d.get("u1")!!
         assertEquals("alice", loaded.username, "Username must survive device update")
         assertEquals(FriendStatus.ACCEPTED, loaded.status)
-        assertEquals(setOf("dev-y"), loaded.devices.map { it.deviceId }.toSet())
+        assertEquals(setOf("dev-y"), loaded.devices.map { it.id }.toSet())
     }
 
     @Test
     fun `updateDevices on unknown user is a no-op`() = runTest {
         val d = newDomain()
         d.updateDevices("never-added", listOf(
-            FriendDeviceInfo("uuid", "dev", "X")
+            FriendDeviceInfo("dev", "X")
         ))
         assertNull(d.get("never-added"), "Update on unknown user must NOT create a phantom friend row")
     }
@@ -90,47 +85,14 @@ class FriendStoreTest {
     @Test
     fun `updateStatus promotes in place without touching the name or devices`() = runTest {
         val d = newDomain()
-        d.add("u1", "alice", FriendStatus.PENDING_SENT, listOf(FriendDeviceInfo("u", "dev", "P")))
+        d.add("u1", "alice", FriendStatus.PENDING_SENT, listOf(FriendDeviceInfo("dev", "P")))
 
         d.updateStatus("u1", FriendStatus.ACCEPTED)
 
         val loaded = d.get("u1")!!
         assertEquals(FriendStatus.ACCEPTED, loaded.status)
         assertEquals("alice", loaded.username)
-        assertEquals(listOf("dev"), loaded.devices.map { it.deviceId })
-    }
-
-    // ── the TOFU-pinned recovery key ──────────────────────────────────────────
-
-    @Test
-    fun `recovery public key is null until something pins one`() = runTest {
-        val d = newDomain()
-        d.add("u1", "alice", FriendStatus.ACCEPTED)
-        assertNull(d.get("u1")!!.recoveryPublicKey,
-            "null is what the trust-on-first-use branch keys on; a default would look already-pinned")
-    }
-
-    /**
-     * `updateStatus` and `updateDevices` must preserve the pinned recovery key.
-     * SQL REPLACE would delete and reinsert the row, clearing unnamed columns.
-     */
-    @Test
-    fun `a pinned recovery key survives a device and status update`() = runTest {
-        val d = newDomain()
-        d.add("u1", "alice", FriendStatus.PENDING_SENT)
-        d.pinRecoveryPublicKey("u1", byteArrayOf(1, 2, 3))
-
-        d.updateDevices("u1", listOf(FriendDeviceInfo("u", "dev", "P")))
-        d.updateStatus("u1", FriendStatus.ACCEPTED)
-
-        assertArrayEquals(byteArrayOf(1, 2, 3), d.get("u1")!!.recoveryPublicKey)
-    }
-
-    @Test
-    fun `pinning a recovery key for an unknown user does not create a row`() = runTest {
-        val d = newDomain()
-        d.pinRecoveryPublicKey("stranger", byteArrayOf(9))
-        assertNull(d.get("stranger"))
+        assertEquals(listOf("dev"), loaded.devices.map { it.id })
     }
 
     @Test
@@ -148,7 +110,7 @@ class FriendStoreTest {
     fun `exportAll and importAll round-trip`() = runTest {
         val d1 = newDomain()
         d1.add("u1", "alice", FriendStatus.ACCEPTED, listOf(
-            FriendDeviceInfo("uuid", "dev", "Phone", 50)
+            FriendDeviceInfo("dev", "Phone")
         ))
         d1.add("u2", "bob", FriendStatus.PENDING_SENT)
         val exported = d1.exportAll()

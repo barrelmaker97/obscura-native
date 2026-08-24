@@ -9,7 +9,7 @@ enum PayloadDisposition: Equatable {
     /// Application content. Goes in the inbox; the app drains it. Ack only after the row commits.
     case inboxed
 
-    /// Mutates kit-owned state (friend graph, devices, sessions). Ack only after the kit's write.
+    /// Mutates kit-owned state (friend graph or devices). Ack only after the kit's write.
     case kitInternal
 
     /// Ephemeral by design, no durable delivery guarantee. MAY be acked without persistence.
@@ -41,8 +41,7 @@ func payloadDisposition(_ payload: Obscura_Client_V1_ClientMessage.OneOf_Payload
         return .inboxed
 
     // Kit-owned state, all with live handlers in `ObscuraClient.routeMessage`.
-    case .friendRequest?, .friendResponse?,
-         .deviceAnnounce?, .sessionReset?:
+    case .friendRequest?, .friendAccept?, .deviceAnnounce?:
         return .kitInternal
 
     // Swift sends this live arm but has no receive handler. Drop and acknowledge it loudly rather
@@ -51,9 +50,9 @@ func payloadDisposition(_ payload: Obscura_Client_V1_ClientMessage.OneOf_Payload
     case .deviceLinkApproval?:
         return .unimplemented
 
-    // Typing indicators. `client.proto` says "in-memory only", and §4 permits acking these without
+    // Typing indicators. The contract makes them in-memory only, and §4 permits acking without
     // persistence — the ONLY class for which that is allowed.
-    case .modelSignal?:
+    case .typingSignal?:
         return .droppable
 
     // Unknown or future arm, and an unset payload. Inbox it unparsed rather than destroy it.

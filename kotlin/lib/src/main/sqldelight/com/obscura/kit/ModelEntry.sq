@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS ModelEntry (
     data TEXT NOT NULL,
     timestamp INTEGER NOT NULL,
     author_device_id TEXT NOT NULL,
+    local_metadata TEXT,
     PRIMARY KEY (model_name, entry_id)
 );
 
@@ -12,8 +13,10 @@ selectByModel:
 SELECT * FROM ModelEntry WHERE model_name = ?;
 
 insertEntry:
-INSERT OR REPLACE INTO ModelEntry(model_name, entry_id, data, timestamp, author_device_id)
-VALUES (?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO ModelEntry(
+    model_name, entry_id, data, timestamp, author_device_id, local_metadata
+)
+VALUES (?, ?, ?, ?, ?, ?);
 
 deleteAllEntries:
 DELETE FROM ModelEntry;

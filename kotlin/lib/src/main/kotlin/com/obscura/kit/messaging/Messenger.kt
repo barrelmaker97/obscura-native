@@ -47,22 +47,20 @@ class Messenger internal constructor(
 ) {
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
 
-    // deviceUuid -> { userId, registrationId }. Used ONLY to enumerate a user's devices for
-    // fan-out (getDeviceIdsForUser) and to resolve a device's owning user. The registrationId
-    // slot is retained for diagnostics and compatibility, not addressing.
-    private val deviceMap = mutableMapOf<String, Pair<String, Int>>()
+    // device UUID -> owning user. Signal registration IDs stay inside Signal bundle/session state.
+    private val deviceMap = mutableMapOf<String, String>()
 
     // Pending submissions for batch sending
     private val queue = mutableListOf<SendMessageRequest.Submission>()
 
-    fun mapDevice(deviceId: String, userId: String, registrationId: Int) {
-        deviceMap[deviceId] = Pair(userId, registrationId)
+    fun mapDevice(deviceId: String, userId: String) {
+        deviceMap[deviceId] = userId
     }
 
-    fun deviceMap(deviceId: String): Pair<String, Int>? = deviceMap[deviceId]
+    fun deviceMap(deviceId: String): String? = deviceMap[deviceId]
 
     fun getDeviceIdsForUser(userId: String): List<String> {
-        return deviceMap.entries.filter { it.value.first == userId }.map { it.key }
+        return deviceMap.entries.filter { it.value == userId }.map { it.key }
     }
 
     /**
@@ -73,19 +71,17 @@ class Messenger internal constructor(
      * this, deviceMap is in-memory only and a friend's messages become unattributable after restart.
      */
     fun knownDevicesFor(userId: String): List<FriendDeviceInfo> =
-        deviceMap.entries.filter { it.value.first == userId }.map {
+        deviceMap.entries.filter { it.value == userId }.map {
             FriendDeviceInfo(
-                deviceUuid = it.key,
-                deviceId = it.key,
-                deviceName = "",
-                registrationId = it.value.second
+                id = it.key,
+                name = "",
             )
         }
 
     fun rebuildDeviceMap(friends: List<FriendData>) {
         for (friend in friends) {
             for (device in friend.devices) {
-                deviceMap[device.deviceId] = Pair(friend.userId, device.registrationId)
+                deviceMap[device.id] = friend.userId
             }
         }
     }
@@ -102,7 +98,7 @@ class Messenger internal constructor(
         // targetDeviceId IS the peer's device UUID — the address name slot (see addressFor).
         // The owning userId is needed only to fetch that device's prekey bundle on first
         // contact; it is NOT part of the session address.
-        val ownerUserId = userId ?: withContext(dispatcher) { deviceMap[targetDeviceId]?.first }
+        val ownerUserId = userId ?: withContext(dispatcher) { deviceMap[targetDeviceId] }
             ?: throw IllegalStateException("No owning userId known for device $targetDeviceId")
 
         val clientMsgBytes = message.toByteArray()
@@ -206,9 +202,8 @@ class Messenger internal constructor(
         }
         val clientMsg = ClientMessage.parseFrom(decryptedBytes)
 
-        // Learn the sender's device for later fan-out. The mapping is
-        // (deviceUuid -> user); the registration-id slot is diagnostic only.
-        deviceMap.putIfAbsent(senderDeviceUuid, Pair(senderId, 1))
+        // Learn the sender's device for later fan-out.
+        deviceMap.putIfAbsent(senderDeviceUuid, senderId)
 
         // authorDeviceId is the address of the session that decrypted. A valid MAC proves
         // possession of that session's chain key, which only the sender's device has — so this
@@ -251,7 +246,7 @@ class Messenger internal constructor(
             val b = bundlesJson.getJSONObject(i)
             val deviceId = b.getString("deviceId")
             val regId = b.getInt("registrationId")
-            deviceMap[deviceId] = Pair(userId, regId)
+            deviceMap[deviceId] = userId
 
             val spk = b.getJSONObject("signedPreKey")
             val otp = if (b.has("oneTimePreKey") && !b.isNull("oneTimePreKey")) b.getJSONObject("oneTimePreKey") else null

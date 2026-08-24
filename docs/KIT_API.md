@@ -78,12 +78,9 @@ Each inbox row exposes:
 | Field | Type | Meaning |
 |---|---|---|
 | `id` | integer | Local row identifier used by `consume` and `discard`. |
-| `envelopeId` | string | Server envelope identifier. Unique while pending. |
 | `kind` | string | Declared proto payload arm, or an unknown/unset marker. |
-| `receivedAt` | integer | Local receipt time in epoch milliseconds. |
 | `senderUserId` | string | Server-stamped `Envelope.sender_id`; never read from app payload data. |
 | `senderDeviceId` | nullable string | Device UUID whose Signal session decrypted the message. |
-| `senderDisplayName` | nullable string | Local trusted display label when available. |
 | `modelKey` | nullable string | Declared `AppEntry.model`; null for other arms. |
 | `entryId` | nullable string | Declared `AppEntry.id`; null for other arms. |
 | `sentAt` | nullable integer | Declared timestamp, clamped per `NATIVE_CONTRACT.md` §2.4. |
@@ -125,7 +122,8 @@ There is no public insert, cursor, retry counter, or mutable error field.
 6. A wake-up event may be dropped only after persistence.
 7. The application must monitor `depth`; unbounded growth is not a recovery
    strategy.
-8. `envelopeId` is unique while a row is pending.
+8. The receive path keeps the transport envelope ID internally and unique while
+   a row is pending; it is not part of the public record.
 9. Only the receive path writes the inbox.
 
 ### 3.4 Unprocessable rows
@@ -177,11 +175,10 @@ attribution before applying it. Payload fields never override either source.
 |---|---|---|---|
 | `APP_ENTRY` | inboxed | inboxed | Primary app payload. |
 | `FRIEND_REQUEST` | kit-internal | kit-internal | Friendship bootstrap. |
-| `FRIEND_RESPONSE` | kit-internal | kit-internal | Friendship bootstrap. |
+| `FRIEND_ACCEPT` | kit-internal | kit-internal | Friendship bootstrap. |
 | `DEVICE_ANNOUNCE` | kit-internal | kit-internal | Linked-device state. |
 | `DEVICE_LINK_APPROVAL` | kit-internal | unimplemented | Swift has no receive handler. |
-| `SESSION_RESET` | kit-internal | kit-internal | Signal session repair. |
-| `MODEL_SIGNAL` | droppable | droppable | Ephemeral typing signal. |
+| `TYPING_SIGNAL` | droppable | droppable | Explicit, typed ephemeral typing state. |
 | unknown/unset | inboxed | inboxed | Preserved as opaque bytes. |
 
 ---
@@ -265,6 +262,13 @@ the inbox and decides whether any user-visible notification is appropriate.
 Overlapping drains may be serialized or coalesced. They must not duplicate app
 events for one inbox insertion.
 
+Aggregate friendship events are payload-free `friendsChanged` wake-ups. Hosts
+call `getFriends` after receiving one; the canonical store observation remains
+inside the kit and full friend arrays are not copied into events.
+
+Debug output is also pull-only. Hosts call `getDebugLog`; debug lines are never
+emitted as live aggregate events.
+
 ---
 
 ## 7. Application obligations
@@ -300,8 +304,14 @@ all(model)
 ```
 
 `StoredEntry` contains the application-selected identifier, timestamp,
-session-attributed author device, and opaque payload bytes/JSON. The store does
-not:
+session-attributed author device, opaque payload bytes/JSON, and nullable
+`localMetadata`.
+
+`localMetadata` is an opaque, app-owned sidecar for local bookkeeping. `put`
+persists it verbatim. It is local-only: the kit never reads its contents,
+serializes it into `AppEntry`, or sends it to another device.
+
+The store does not:
 
 - parse model schemas;
 - resolve audiences;
@@ -360,8 +370,6 @@ These constraints affect compatibility work:
 - Swift cannot receive `DEVICE_LINK_APPROVAL`.
 - Linked devices do not automatically learn friendships created after linking.
 - Device announcements have no replay protection.
-- Remote device revocation is not implemented.
-- Encrypted backup and account-recovery assembly are not implemented.
 - Partial-recipient send failures are not visible to the application.
 - Consumed inbox envelope IDs have no durable deduplication tombstone.
 

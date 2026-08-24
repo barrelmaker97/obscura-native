@@ -199,13 +199,13 @@ kover {
                 )
             }
         }
-        // Coverage floor for the unit suite (`:lib:koverVerify`, wired into the
-        // fast PR gate). A ratchet, not a target — bump these up as coverage
-        // grows so it can't silently regress. Currently ~62% instr / ~73% line.
+        // Coverage floor for the unit suite (`:lib:koverVerify`, wired into the fast PR gate).
+        // Rebased after removing the fully unit-tested BIP39/recovery subsystem; integration-only
+        // transport paths remain covered by `integrationTest`, not this unit metric.
         verify {
             rule("Unit-suite coverage floor") {
-                minBound(62, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
-                minBound(50, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.INSTRUCTION)
+                minBound(48, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
+                minBound(40, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.INSTRUCTION)
             }
         }
     }

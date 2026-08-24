@@ -32,14 +32,11 @@ class InboxStoreTest {
         kind: String = "APP_ENTRY",
         payload: ByteArray = "{}".toByteArray(),
         modelKey: String? = "directMessage",
-    ) = InboxRecord(
-        id = 0,
+    ) = InboxInsert(
         envelopeId = envelopeId,
         kind = kind,
-        receivedAt = 1_700_000_000_000,
         senderUserId = "user_peer",
         senderDeviceId = "device_peer",
-        senderDisplayName = "alice",
         modelKey = modelKey,
         entryId = "entry_1",
         sentAt = 1_700_000_000_000,
@@ -134,11 +131,11 @@ class InboxStoreTest {
     /** Drain order is oldest-first, because the app processes in arrival order. */
     @Test
     fun `peek returns rows in insertion order and respects the limit`() = runBlocking {
-        repeat(5) { inbox.put(record("env_$it")) }
+        repeat(5) { inbox.put(record("env_$it", payload = "env_$it".toByteArray())) }
 
         val rows = inbox.peek(limit = 3)
 
-        assertEquals(listOf("env_0", "env_1", "env_2"), rows.map { it.envelopeId })
+        assertEquals(listOf("env_0", "env_1", "env_2"), rows.map { String(it.payload) })
     }
 
     /**
@@ -164,14 +161,14 @@ class InboxStoreTest {
 
     @Test
     fun `consume is idempotent and accepts a subset`() = runBlocking {
-        repeat(3) { inbox.put(record("env_$it")) }
+        repeat(3) { inbox.put(record("env_$it", payload = "env_$it".toByteArray())) }
         val rows = inbox.peek()
 
         inbox.consume(listOf(rows[0].id))
         inbox.consume(listOf(rows[0].id)) // again — partial progress is normal, not an error
 
         assertEquals(2L, inbox.depth())
-        assertEquals(listOf("env_1", "env_2"), inbox.peek().map { it.envelopeId })
+        assertEquals(listOf("env_1", "env_2"), inbox.peek().map { String(it.payload) })
     }
 
     @Test
@@ -236,11 +233,9 @@ class InboxStoreTest {
 
         val row = inbox.peek().single()
 
-        assertEquals("env_1", row.envelopeId)
         assertEquals("APP_ENTRY", row.kind)
         assertEquals("user_peer", row.senderUserId)
         assertEquals("device_peer", row.senderDeviceId)
-        assertEquals("alice", row.senderDisplayName)
         assertEquals("directMessage", row.modelKey)
         assertEquals("entry_1", row.entryId)
         assertArrayEquals(payload, row.payload, "payload is opaque bytes and must not be re-encoded")
@@ -268,7 +263,7 @@ class InboxStoreTest {
     // ── §3.3 rule 2 carve-out ─────────────────────────────────────────────────
 
     /**
-     * A device wipe or remote revocation must be able to destroy decrypted plaintext. Note it takes
+     * A device wipe must be able to destroy decrypted plaintext. Note it takes
      * no selector: destroying the whole store is what keeps this a security operation rather than
      * "drop the oldest when things get tight", which is the policy §3.4 refuses to add.
      */

@@ -15,7 +15,7 @@ alice.befriend(bob1.userId!!, bobUsername!!)
 bob1.waitForMessage() // FRIEND_REQUEST on bob1
 bob2.waitForMessage() // FRIEND_REQUEST on bob2 (fan-out!)
 bob1.acceptFriend(...)
-alice.waitForMessage() // FRIEND_RESPONSE
+alice.waitForMessage() // FRIEND_ACCEPT
 ```
 
 **How to apply:** Any test involving multiple devices of the same user must account for fan-out. Every `befriend()`, `send()`, etc. produces N messages where N = number of target devices.

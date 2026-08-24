@@ -20,7 +20,7 @@ internal class FriendshipManager(
         when (existing?.status) {
             FriendStatus.ACCEPTED -> return
             FriendStatus.PENDING_RECEIVED -> {
-                acceptFriend(targetUserId, existing.username)
+                acceptFriend(targetUserId)
                 return
             }
             FriendStatus.PENDING_SENT, null -> Unit
@@ -51,18 +51,23 @@ internal class FriendshipManager(
         }
     }
 
-    suspend fun acceptFriend(targetUserId: String, targetUsername: String) {
+    suspend fun acceptFriend(targetUserId: String) {
+        val existing = requireNotNull(friends.get(targetUserId)) {
+            "Cannot accept a friend request that is not stored locally"
+        }
         messenger.fetchPreKeyBundles(targetUserId)
 
         val msg = ClientMessage.newBuilder()
-            .setFriendResponse(obscura.client.v1.friendResponse {
-                username = session.username ?: ""
-                accepted = true
-            })
+            .setFriendAccept(obscura.client.v1.friendAccept {})
             .setTimestamp(System.currentTimeMillis()).build()
 
         messageSender.sendToAllDevices(targetUserId, msg)
-        friends.add(targetUserId, targetUsername, FriendStatus.ACCEPTED, messenger.knownDevicesFor(targetUserId))
+        friends.add(
+            targetUserId,
+            existing.username,
+            FriendStatus.ACCEPTED,
+            messenger.knownDevicesFor(targetUserId),
+        )
     }
 
 }

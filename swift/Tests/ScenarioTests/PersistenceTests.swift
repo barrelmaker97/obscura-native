@@ -47,9 +47,9 @@ final class PersistenceTests: XCTestCase {
 
         try await alice.client.befriend(bobUserId, username: bobUsername)
         _ = try await bob1.waitForMessage(timeout: 10) // FRIEND_REQUEST
-        try await bob1.acceptFriend(alice.userId!, username: alice.username)
+        try await bob1.acceptFriend(alice.userId!)
         await rateLimitDelay()
-        _ = try await alice.waitForMessage(timeout: 10) // FRIEND_RESPONSE
+        _ = try await alice.waitForMessage(timeout: 10) // FRIEND_ACCEPT
 
         // Verify friendship
         let aliceFriend = await alice.friends.getFriend(bobUserId)

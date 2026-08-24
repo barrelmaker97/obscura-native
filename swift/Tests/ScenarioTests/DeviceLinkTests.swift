@@ -1,5 +1,4 @@
 import XCTest
-import LibSignalClient
 @testable import ObscuraKit
 
 /// Unit tests for device linking — link code generation, parsing, validation, challenge verification.
@@ -49,43 +48,22 @@ final class DeviceLinkTests: XCTestCase {
     // MARK: - Link Code Generation
 
     func testGenerateLinkCode_notEmpty() {
-        let keyPair = IdentityKeyPair.generate()
-        let code = DeviceLink.generateLinkCode(
-            deviceId: "device-123",
-            deviceUUID: "uuid-456",
-            signalIdentityKey: Data(keyPair.publicKey.serialize())
-        )
+        let code = DeviceLink.generateLinkCode(deviceId: "device-123")
         XCTAssertFalse(code.isEmpty)
     }
 
     func testGenerateLinkCode_parsesBack() {
-        let keyPair = IdentityKeyPair.generate()
-        let identityKeyData = Data(keyPair.publicKey.serialize())
-
-        let code = DeviceLink.generateLinkCode(
-            deviceId: "device-123",
-            deviceUUID: "uuid-456",
-            signalIdentityKey: identityKeyData
-        )
+        let code = DeviceLink.generateLinkCode(deviceId: "device-123")
 
         let parsed = DeviceLink.parseLinkCode(code)
         XCTAssertNotNil(parsed)
         XCTAssertEqual(parsed?.deviceId, "device-123")
-        XCTAssertEqual(parsed?.deviceUUID, "uuid-456")
-
-        // Identity key round-trips correctly
-        let extractedKey = DeviceLink.extractSignalIdentityKey(parsed!)
-        XCTAssertEqual(extractedKey, identityKeyData)
     }
 
     func testGenerateLinkCode_hasFreshTimestamp() {
-        let keyPair = IdentityKeyPair.generate()
         let beforeMs = UInt64(Date().timeIntervalSince1970 * 1000)
 
-        let code = DeviceLink.generateLinkCode(
-            deviceId: "d1", deviceUUID: "u1",
-            signalIdentityKey: Data(keyPair.publicKey.serialize())
-        )
+        let code = DeviceLink.generateLinkCode(deviceId: "d1")
 
         let parsed = DeviceLink.parseLinkCode(code)!
         let afterMs = UInt64(Date().timeIntervalSince1970 * 1000)
@@ -95,11 +73,7 @@ final class DeviceLinkTests: XCTestCase {
     }
 
     func testGenerateLinkCode_challengeIs16Bytes() {
-        let keyPair = IdentityKeyPair.generate()
-        let code = DeviceLink.generateLinkCode(
-            deviceId: "d1", deviceUUID: "u1",
-            signalIdentityKey: Data(keyPair.publicKey.serialize())
-        )
+        let code = DeviceLink.generateLinkCode(deviceId: "d1")
 
         let parsed = DeviceLink.parseLinkCode(code)!
         let challenge = DeviceLink.extractChallenge(parsed)
@@ -108,11 +82,8 @@ final class DeviceLinkTests: XCTestCase {
     }
 
     func testGenerateLinkCode_uniqueChallenges() {
-        let keyPair = IdentityKeyPair.generate()
-        let key = Data(keyPair.publicKey.serialize())
-
-        let code1 = DeviceLink.generateLinkCode(deviceId: "d1", deviceUUID: "u1", signalIdentityKey: key)
-        let code2 = DeviceLink.generateLinkCode(deviceId: "d1", deviceUUID: "u1", signalIdentityKey: key)
+        let code1 = DeviceLink.generateLinkCode(deviceId: "d1")
+        let code2 = DeviceLink.generateLinkCode(deviceId: "d1")
 
         let c1 = DeviceLink.extractChallenge(DeviceLink.parseLinkCode(code1)!)
         let c2 = DeviceLink.extractChallenge(DeviceLink.parseLinkCode(code2)!)
@@ -122,11 +93,7 @@ final class DeviceLinkTests: XCTestCase {
     // MARK: - Validation
 
     func testValidate_freshCodeIsValid() {
-        let keyPair = IdentityKeyPair.generate()
-        let code = DeviceLink.generateLinkCode(
-            deviceId: "d1", deviceUUID: "u1",
-            signalIdentityKey: Data(keyPair.publicKey.serialize())
-        )
+        let code = DeviceLink.generateLinkCode(deviceId: "d1")
 
         if case .valid(let parsed) = DeviceLink.validateLinkCode(code) {
             XCTAssertEqual(parsed.deviceId, "d1")
@@ -139,11 +106,9 @@ final class DeviceLinkTests: XCTestCase {
     ///
     /// An explicit past timestamp avoids timing races and tests the real threshold.
     func testValidate_expiredCodeRejected() {
-        let keyPair = IdentityKeyPair.generate()
         let tenMinutesAgo = UInt64(Date().timeIntervalSince1970 * 1000) - 10 * 60 * 1000
         let code = Self.encodeLinkCode(DeviceLink.LinkCode(
-            deviceId: "d1", deviceUUID: "u1",
-            signalIdentityKey: Data(keyPair.publicKey.serialize()).base64EncodedString(),
+            deviceId: "d1",
             challenge: Data(repeating: 0xAB, count: 16).base64EncodedString(),
             timestamp: tenMinutesAgo
         ))
@@ -161,10 +126,8 @@ final class DeviceLinkTests: XCTestCase {
     /// go negative and **trap**. A trap is not catchable: scanning a hostile QR code killed the app.
     /// Reaching the assertion at all is the test.
     func testValidate_futureDatedCodeIsTreatedAsFreshRatherThanTrapping() {
-        let keyPair = IdentityKeyPair.generate()
         let code = Self.encodeLinkCode(DeviceLink.LinkCode(
-            deviceId: "d1", deviceUUID: "u1",
-            signalIdentityKey: Data(keyPair.publicKey.serialize()).base64EncodedString(),
+            deviceId: "d1",
             challenge: Data(repeating: 0xAB, count: 16).base64EncodedString(),
             timestamp: UInt64.max
         ))

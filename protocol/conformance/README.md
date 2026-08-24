@@ -1,7 +1,7 @@
 # Shared conformance vectors
 
-`wire.json` is the executable cross-kit contract for encoding `APP_ENTRY`,
-ephemeral signals, and representative app payload bytes into `client.proto`.
+`wire.json` is the executable cross-kit contract for payload-arm names,
+typed typing signals, and representative app payload bytes in `client.proto`.
 Both kit suites load the same file and must produce equivalent wire messages.
 
 This directory contains only behavior that both kits must independently
@@ -21,7 +21,7 @@ The file has three arrays:
 | Array | Purpose |
 |---|---|
 | `messageTypes` | Proto payload-arm to app kind mappings. |
-| `signalKinds` | Ephemeral signal mappings. |
+| `typingStates` | `TypingSignal.state` mappings. |
 | `roundTrip` | Value-preserving `AppEntry` encode/decode cases. |
 
 Round-trip assertions compare values rather than serialized bytes. Model data is

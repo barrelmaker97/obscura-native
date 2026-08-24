@@ -27,8 +27,19 @@ class EntryStoreTest {
         store = EntryStore(ObscuraDatabase(driver))
     }
 
-    private fun entry(id: String, data: String = """{"content":"hi"}""", sentAt: Long = 1_000, device: String = "device_a") =
-        StoredEntry(id = id, data = data, sentAt = sentAt, authorDeviceId = device)
+    private fun entry(
+        id: String,
+        data: String = """{"content":"hi"}""",
+        sentAt: Long = 1_000,
+        device: String = "device_a",
+        localMetadata: String? = null,
+    ) = StoredEntry(
+        id = id,
+        data = data,
+        sentAt = sentAt,
+        authorDeviceId = device,
+        localMetadata = localMetadata,
+    )
 
     @Test
     fun `put then all returns what was written`() = runBlocking {
@@ -41,6 +52,7 @@ class EntryStoreTest {
         assertEquals("""{"content":"hi"}""", all[0].data)
         assertEquals(1_000L, all[0].sentAt)
         assertEquals("device_a", all[0].authorDeviceId)
+        assertNull(all[0].localMetadata)
     }
 
     /**
@@ -112,5 +124,25 @@ class EntryStoreTest {
 
         assertEquals(1_700_000_000_123L, stored.sentAt)
         assertEquals("device_zzz", stored.authorDeviceId)
+    }
+
+    @Test
+    fun `local metadata round-trips verbatim and remains nullable`() = runBlocking {
+        val metadata = """{"uploadState":"complete","attempts":2}"""
+        store.put("pix", entry("with_meta", localMetadata = metadata))
+        store.put("pix", entry("without_meta"))
+
+        val stored = store.all("pix").associateBy { it.id }
+
+        assertEquals(metadata, stored.getValue("with_meta").localMetadata)
+        assertNull(stored.getValue("without_meta").localMetadata)
+    }
+
+    @Test
+    fun `put replaces local metadata with the app supplied value`() = runBlocking {
+        store.put("pix", entry("pix_1", localMetadata = """{"state":"pending"}"""))
+        store.put("pix", entry("pix_1", localMetadata = null))
+
+        assertNull(store.all("pix").single().localMetadata)
     }
 }

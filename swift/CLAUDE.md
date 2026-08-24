@@ -38,12 +38,9 @@ entry store beyond `KIT_API.md` §8.1.
 - This kit sends `DEVICE_LINK_APPROVAL` but has no receive handler. The arm is
   logged, dropped, and acknowledged so it cannot wedge the queue. Kotlin handles
   it, so linked-device behavior differs by platform.
-- Device announcements use a trust-on-first-use recovery key but have no replay
-  protection. Timestamp ordering rejects stale state but is not a nonce.
+- Device announcements have no replay protection.
 - Linked devices receive the friend graph at link time but do not learn friends
   added later.
-- There is no remote device revocation. Use `api.deleteDevice` from a device you
-  still hold.
 - `APP_ENTRY` has one durable receive write: `inbox.put`. Persistence errors
   propagate and skip acknowledgement (`NATIVE_CONTRACT.md` §0.9).
 

@@ -11,10 +11,9 @@ public actor Messenger {
     private let signedPreKeyStore: SignedPreKeyStore
     private let sessionStore: SessionStore
     private let kyberPreKeyStore: KyberPreKeyStore
-    private let ownUserId: String
 
-    // Device map: deviceId → (userId, registrationId)
-    private var deviceMap: [String: (userId: String, registrationId: UInt32)] = [:]
+    // Device UUID → owning user. Signal registration IDs stay in bundle/session state.
+    private var deviceMap: [String: String] = [:]
 
     // Message queue for batch sending. `attempts` is what stops a permanently-failing submission
     // from poisoning the queue forever — see `flushMessages`.
@@ -28,20 +27,19 @@ public actor Messenger {
     /// `send`, `befriend`, `acceptFriend` and self-sync then break for the rest of the session.
     private static let maxFlushAttempts = 3
 
-    public init(api: APIClient, store: PersistentSignalStore, ownUserId: String) {
+    public init(api: APIClient, store: PersistentSignalStore) {
         self.api = api
         self.identityStore = store
         self.preKeyStore = store
         self.signedPreKeyStore = store
         self.sessionStore = store
         self.kyberPreKeyStore = store
-        self.ownUserId = ownUserId
     }
 
     // MARK: - Device Mapping
 
-    public func mapDevice(_ deviceId: String, userId: String, registrationId: UInt32) {
-        deviceMap[deviceId] = (userId: userId, registrationId: registrationId)
+    public func mapDevice(_ deviceId: String, userId: String) {
+        deviceMap[deviceId] = userId
     }
 
     // MARK: - PreKey Bundle Fetching
@@ -51,7 +49,7 @@ public actor Messenger {
         let bundles = try await api.fetchPreKeyBundles(userId)
 
         for bundle in bundles {
-            deviceMap[bundle.deviceId] = (userId: userId, registrationId: UInt32(bundle.registrationId))
+            deviceMap[bundle.deviceId] = userId
         }
 
         return bundles
@@ -73,10 +71,9 @@ public actor Messenger {
         try ProtocolAddress(name: deviceUuid, deviceId: addrDeviceId)
     }
 
-    /// Enumerate the device UUIDs known for a user (for session-reset fan-out). The registrationId
-    /// slot of deviceMap is diagnostic only; addressing is by device UUID.
+    /// Enumerate the device UUIDs known for a user.
     public func getDeviceIdsForUser(_ userId: String) -> [String] {
-        deviceMap.filter { $0.value.userId == userId }.map { $0.key }
+        deviceMap.filter { $0.value == userId }.map { $0.key }
     }
 
     // MARK: - Encryption
@@ -102,7 +99,7 @@ public actor Messenger {
         let regId = UInt32(bundleData.registrationId)
         let address = try Self.addressFor(bundleData.deviceId)
         // Learn the device -> user mapping so getDeviceIdsForUser can enumerate this user's devices.
-        deviceMap[bundleData.deviceId] = (userId: userId, registrationId: regId)
+        deviceMap[bundleData.deviceId] = userId
 
         guard let identityKeyData = Data(base64Encoded: bundleData.identityKey) else {
             throw MessengerError.invalidBundle("invalid identityKey base64")
@@ -188,10 +185,9 @@ public actor Messenger {
             )
         }
 
-        // Learn the sender's device for later fan-out. The registration-id
-        // slot is diagnostic only; addressing is by device UUID.
+        // Learn the sender's device for later fan-out.
         if deviceMap[senderDeviceUuid] == nil {
-            deviceMap[senderDeviceUuid] = (userId: senderUserId, registrationId: Self.addrDeviceId)
+            deviceMap[senderDeviceUuid] = senderUserId
         }
 
         return plaintext
@@ -207,7 +203,7 @@ public actor Messenger {
         // address); encrypt throws if it does not. The owning userId is retained only so
         // getDeviceIdsForUser can enumerate the user's devices for fan-out; it is NOT an address.
         if let uid = targetUserId, deviceMap[targetDeviceId] == nil {
-            deviceMap[targetDeviceId] = (userId: uid, registrationId: Self.addrDeviceId)
+            deviceMap[targetDeviceId] = uid
         }
 
         // Use pre-serialized ClientMessage bytes

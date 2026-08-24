@@ -3,7 +3,6 @@ package com.obscura.kit
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.obscura.kit.crypto.LinkCode
-import com.obscura.kit.crypto.RecoveryKeys
 import com.obscura.kit.crypto.SignalStore
 import com.obscura.kit.crypto.UuidCodec
 import com.obscura.kit.crypto.toBase64
@@ -16,7 +15,7 @@ import com.obscura.kit.network.GatewayConnection
 import com.obscura.kit.network.GatewayState
 import com.obscura.kit.network.LoginResult
 import com.obscura.kit.network.UploadDeviceKeysRequest
-import com.obscura.kit.wire.SignalManager
+import com.obscura.kit.wire.TypingTracker
 import com.obscura.kit.wire.WireCodec
 import com.obscura.kit.wire.PayloadDisposition
 import com.obscura.kit.wire.payloadDisposition
@@ -24,18 +23,21 @@ import com.obscura.kit.stores.*
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.obscura.kit.persistence.NoOpSessionStorage
 import com.obscura.kit.persistence.SessionStorage
 import obscura.client.v1.Client.ClientMessage
-import obscura.client.v1.modelSignal
-import org.signal.libsignal.protocol.ecc.Curve
+import obscura.client.v1.typingSignal
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentLinkedDeque
@@ -90,7 +92,16 @@ class ObscuraClient(
     val authState: StateFlow<AuthState> = _authState
 
     private val _friendList = MutableStateFlow<List<FriendData>>(emptyList())
-    val friendList: StateFlow<List<FriendData>> = _friendList
+    internal val friendList: StateFlow<List<FriendData>> = _friendList
+
+    private val _friendsChanged = MutableSharedFlow<Unit>(
+        replay = 1,
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /** Payload-free wake event. Call [getFriends] for the canonical current rows. */
+    val friendsChanged: SharedFlow<Unit> = _friendsChanged.asSharedFlow()
 
     private val driver = externalDriver ?: if (config.databasePath != null) {
         JdbcSqliteDriver("jdbc:sqlite:${config.databasePath}")
@@ -122,7 +133,7 @@ class ObscuraClient(
      */
     val entries: EntryStore
 
-    private val signalManager: SignalManager
+    private val typingTracker: TypingTracker
 
     // Session — shared mutable state
     private val session = ClientSession()
@@ -133,7 +144,6 @@ class ObscuraClient(
     private val friendshipManager: FriendshipManager
     private val contentService: ContentService
     private val deviceManager: DeviceManager
-    private val sessionResetService: SessionResetService
 
     // Identity — delegate to session
     var userId: String?
@@ -148,9 +158,7 @@ class ObscuraClient(
     var refreshToken: String?
         get() = session.refreshToken
         private set(value) { session.refreshToken = value }
-    var registrationId: Int
-        get() = session.registrationId
-        private set(value) { session.registrationId = value }
+    val registrationId: Int get() = signalStore.getLocalRegistrationId()
     val token: String? get() = api.token
 
     /** Structured logger for security events. Set to a custom implementation for production. */
@@ -166,7 +174,7 @@ class ObscuraClient(
     val incomingMessages = Channel<MessageWakeEvent>(capacity = 1000)
 
     /** Debug log — ring buffer of last 200 events. Thread-safe. */
-    val debugLog = ConcurrentLinkedDeque<String>()
+    internal val debugLog = ConcurrentLinkedDeque<String>()
     private fun log(msg: String) {
         val ts = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
         debugLog.addFirst("[$ts] $msg")
@@ -205,7 +213,7 @@ class ObscuraClient(
             log("INBOX DISCARD ${ids.size} row(s): $reason")
         }
 
-        signalManager = SignalManager()
+        typingTracker = TypingTracker()
         gateway = GatewayConnection(api, scope)
 
 
@@ -247,13 +255,9 @@ class ObscuraClient(
                 db.signalKeyQueries.deleteAllSessions()
                 db.signalKeyQueries.deleteAllSenderKeys()
                 db.modelEntryQueries.deleteAllEntries()
-                // The §3.3 rule 2 carve-out, and the reason it is worded as a MUST: the inbox holds
-                // DECRYPTED plaintext — full payloads, the resolved sender name, the model key. A
-                // wipe that spared it would leave exactly the content a revocation is meant to
-                // destroy, and on Android the database is still plaintext SQLite, so it would be
-                // readable with no key at all. Note this destroys the whole table rather than
-                // selecting rows: that is what keeps it a security operation and not the eviction
-                // policy §3.4 refuses to add.
+                // The §3.3 rule 2 carve-out: a device wipe must also destroy the inbox's decrypted
+                // plaintext. The whole table is cleared so this remains a security operation, not
+                // the eviction policy §3.4 refuses to add.
                 // Keep the security carve-out behind InboxStore rather than exposing its query.
                 inbox.wipe()
             },
@@ -281,13 +285,9 @@ class ObscuraClient(
             }
         }
 
-        signalManager.sendSignal = ::deliverSignalToConversation
-
         friendshipManager = FriendshipManager(ctx = ctx)
 
         contentService = ContentService(ctx = ctx)
-
-        sessionResetService = SessionResetService(ctx = ctx)
 
         deviceManager = DeviceManager(
             ctx = ctx,
@@ -304,10 +304,19 @@ class ObscuraClient(
                 .asFlow()
                 .mapToList(Dispatchers.IO)
                 .map { rows -> rows.map { it.toObservedFriendData() } }
-                .collect { _friendList.value = it }
+                .collect {
+                    _friendList.value = it
+                    _friendsChanged.tryEmit(Unit)
+                }
         }
 
     }
+
+    /** Current friend rows. Aggregate wake events intentionally carry no copies of this payload. */
+    fun getFriends(): List<FriendData> = _friendList.value
+
+    /** Snapshot of the bounded debug ring, newest first. Debug lines are never live events. */
+    fun getDebugLog(): List<String> = debugLog.toList()
 
     suspend fun register(username: String, password: String) {
         authManager.register(username, password)
@@ -325,9 +334,8 @@ class ObscuraClient(
         userId: String,
         deviceId: String?,
         username: String?,
-        registrationId: Int = 0
     ) {
-        authManager.restoreSession(token, refreshToken, userId, deviceId, username, registrationId)
+        authManager.restoreSession(token, refreshToken, userId, deviceId, username)
     }
 
     fun hasSession(): Boolean = authManager.hasSession()
@@ -358,7 +366,6 @@ class ObscuraClient(
             put("userId", userId)
             put("deviceId", deviceId)
             put("username", username)
-            put("registrationId", registrationId)
         }
         sessionStorage.save(data)
         log("SESSION persisted user=$username")
@@ -381,7 +388,6 @@ class ObscuraClient(
             userId = savedUserId,
             deviceId = saved["deviceId"] as? String,
             username = saved["username"] as? String,
-            registrationId = (saved["registrationId"] as? Number)?.toInt() ?: 0
         )
 
 
@@ -442,7 +448,7 @@ class ObscuraClient(
         // SignalManager's own scope outlives this object otherwise: every `receive` launches a
         // 3.1s expiry coroutine, and after a logout those keep running (and keep mutating typing
         // state) for a user who is gone.
-        signalManager.shutdown()
+        typingTracker.shutdown()
         gateway.disconnect() // fires onStateChanged → _connectionState = DISCONNECTED
         try { authManager.logout() } catch (e: Exception) { log("logout during fullLogout failed: ${e.message}") }
         _authState.value = AuthState.LOGGED_OUT
@@ -743,7 +749,7 @@ class ObscuraClient(
                     // friend graph keyed on sourceUserId when the app renders the conversation.
                     val username = when (msg.payloadCase) {
                         ClientMessage.PayloadCase.FRIEND_REQUEST -> msg.friendRequest.username
-                        ClientMessage.PayloadCase.FRIEND_RESPONSE -> msg.friendResponse.username
+                        ClientMessage.PayloadCase.FRIEND_ACCEPT -> friends.get(sourceUserId)?.username ?: ""
                         else -> ""
                     }
                     val received = MessageWakeEvent(
@@ -845,13 +851,11 @@ class ObscuraClient(
 
             PayloadDisposition.DROPPABLE, PayloadDisposition.KIT_INTERNAL -> when (msg.payloadCase) {
                 ClientMessage.PayloadCase.FRIEND_REQUEST -> handleFriendRequest(msg, sourceUserId)
-                ClientMessage.PayloadCase.FRIEND_RESPONSE -> handleFriendResponse(msg, sourceUserId)
+                ClientMessage.PayloadCase.FRIEND_ACCEPT -> handleFriendAccept(sourceUserId)
                 ClientMessage.PayloadCase.DEVICE_ANNOUNCE -> handleDeviceAnnounce(msg, sourceUserId)
-                ClientMessage.PayloadCase.SESSION_RESET ->
-                    // Sessions are keyed on device UUID, so clear every session for this user.
-                    messenger.getDeviceIdsForUser(sourceUserId).forEach { signalStore.deleteAllSessions(it) }
                 ClientMessage.PayloadCase.DEVICE_LINK_APPROVAL -> handleLinkApproval(msg, sourceUserId)
-                ClientMessage.PayloadCase.MODEL_SIGNAL -> handleModelSignal(msg, sourceUserId, senderDeviceId)
+                ClientMessage.PayloadCase.TYPING_SIGNAL ->
+                    handleTypingSignal(msg, sourceUserId, senderDeviceId)
                 else -> error("classified ${msg.payloadCase.name} as kit-internal with no handler")
             }
         }
@@ -877,8 +881,7 @@ class ObscuraClient(
         val sync = msg.appEntry
 
         val inserted = inbox.put(
-            InboxRecord(
-                id = 0, // assigned by the database
+            InboxInsert(
                 envelopeId = envelopeId,
                 // Must match Swift byte for byte — the app reads one `kind` column from two
                 // kits, and §4.1 has pix's drain BRANCH on it (an unrecognised kind is discarded).
@@ -888,13 +891,8 @@ class ObscuraClient(
                 // queue wedges. Both kits now go through WireCodec and share the UNKNOWN sentinel —
                 // an empty string is a poor value for a NOT NULL column read across a bridge.
                 kind = WireCodec.decodeType(msg.payloadCase).ifEmpty { "UNKNOWN" },
-                receivedAt = System.currentTimeMillis(),
                 senderUserId = sourceUserId,
                 senderDeviceId = senderDeviceId,
-                // SPEC §0.5: the name comes from OUR friend graph, keyed on the authenticated
-                // sender, never from the payload. Null when they are not a friend — §7 covers what
-                // the app should show then, and it is not a peer-chosen string.
-                senderDisplayName = friends.get(sourceUserId)?.username,
                 // AppEntry-derived, so null for an unknown arm — there is nothing to derive from.
                 modelKey = if (isAppEntry) sync.model else null,
                 entryId = if (isAppEntry) sync.id else null,
@@ -945,7 +943,7 @@ class ObscuraClient(
             if (existing.status == FriendStatus.PENDING_SENT) {
                 // Crossed requests are mutual consent. Accepting here prevents both peers from
                 // remaining permanently pending when they scan each other's codes.
-                friendshipManager.acceptFriend(sourceUserId, existing.username)
+                friendshipManager.acceptFriend(sourceUserId)
                 logger.log("crossed friend request from $sourceUserId promoted to accepted")
                 return
             }
@@ -963,15 +961,13 @@ class ObscuraClient(
             messenger.knownDevicesFor(sourceUserId))
     }
 
-    private suspend fun handleFriendResponse(msg: ClientMessage, sourceUserId: String) {
-        if (!msg.friendResponse.accepted) return
-
+    private suspend fun handleFriendAccept(sourceUserId: String) {
         // A response is valid only for a request we sent. Delivery alone must not allow an
         // authenticated stranger to insert itself as an accepted friend.
         val existing = friends.get(sourceUserId)
         if (existing == null || existing.status != FriendStatus.PENDING_SENT) {
             logger.log(
-                "ignoring unsolicited FRIEND_RESPONSE from $sourceUserId " +
+                "ignoring unsolicited FRIEND_ACCEPT from $sourceUserId " +
                     "(local status=${existing?.status?.value ?: "none"}; expected pending_sent)"
             )
             return
@@ -983,108 +979,39 @@ class ObscuraClient(
         friends.updateDevices(sourceUserId, messenger.knownDevicesFor(sourceUserId))
     }
 
-    /**
-     * DEVICE_ANNOUNCE — learn a peer's device list, and hold them to a pinned recovery key.
-     *
-     * Pin the first recovery key as trust-on-first-use. Later announcements are verified against
-     * that stored key, never a key supplied by the same message being verified.
-     */
     internal suspend fun handleDeviceAnnounce(msg: ClientMessage, sourceUserId: String) {
         val announce = msg.deviceAnnounce
-        val offered = announce.recoveryPublicKey.toByteArray()
-        val pinned = friends.get(sourceUserId)?.recoveryPublicKey
-
-        val trusted = when {
-            pinned != null -> {
-                if (offered.isNotEmpty() && !offered.contentEquals(pinned)) {
-                    // A peer rotating its recovery key mid-stream is indistinguishable from an
-                    // attacker replacing it, so this is refused rather than resolved. Re-pinning is
-                    // a re-friend, not a message.
-                    logger.signatureVerificationFailed(sourceUserId, "DEVICE_ANNOUNCE")
-                    log("DEVICE_ANNOUNCE rejected: offered recovery key differs from the pinned one")
-                    return
-                }
-                pinned
-            }
-            offered.isNotEmpty() -> {
-                friends.pinRecoveryPublicKey(sourceUserId, offered)
-                offered
-            }
-            else -> null
-        }
-
-        // A revocation is the announce that needs the key — it is how a peer says "these devices of
-        // mine are gone", and it is exactly what a compromised device would forge. So it must carry
-        // a signature verified against the pin. An ordinary (non-revocation) announce is just a
-        // device-list refresh from an already-Signal-authenticated user and stays unsigned, which is
-        // what `DeviceManager.announceDevices` sends.
-        if (announce.isRevocation || announce.signature.size() > 0) {
-            if (trusted == null || announce.signature.size() == 0) {
-                logger.signatureVerificationFailed(sourceUserId, "DEVICE_ANNOUNCE")
-                log("DEVICE_ANNOUNCE rejected: revocation/signed announce with no key pinned to check it against")
-                return
-            }
-            val payload = RecoveryKeys.serializeAnnounceForSigning(
-                announce.devicesList.map { it.deviceId }, announce.timestamp, announce.isRevocation
-            )
-            val ok = try {
-                Curve.verifySignature(Curve.decodePoint(trusted, 0), payload, announce.signature.toByteArray())
-            } catch (e: Exception) {
-                log("DEVICE_ANNOUNCE signature verify error: ${e.message}")
-                false
-            }
-            if (!ok) {
-                logger.signatureVerificationFailed(sourceUserId, "DEVICE_ANNOUNCE")
-                log("DEVICE_ANNOUNCE rejected: signature does not verify under the pinned recovery key")
-                return
-            }
-        }
-
-        friends.updateDevices(sourceUserId, announce.devicesList.map { d ->
-            FriendDeviceInfo(d.deviceUuid, d.deviceId, d.deviceName)
-        })
+        friends.updateDevices(
+            sourceUserId,
+            announce.devicesList.map { d -> FriendDeviceInfo(d.id, d.name) },
+            clampFutureTimestamp(msg.timestamp),
+        )
     }
 
-    internal suspend fun handleModelSignal(msg: ClientMessage, sourceUserId: String, senderDeviceId: String?) {
+    internal suspend fun handleTypingSignal(
+        msg: ClientMessage,
+        sourceUserId: String,
+        senderDeviceId: String?,
+    ) {
         try {
-            val sig = msg.modelSignal
-            if (sig.model.isBlank()) return
-
-            val signalName = WireCodec.decodeSignalKind(sig.kind)
-                ?: return // unknown/unspecified — ignore
-
-            // Both send and receive fail closed: a two-party signal must name
-            // exactly two participants, including the authenticated sender.
-            val participants = sig.contextId.split("_").filter { it.isNotBlank() }
-            if (participants.size != 2 || sourceUserId !in participants) {
-                log("SIGNAL DROPPED (inbound): contextId=\"${sig.contextId}\" is not a two-party id " +
-                    "containing the sender ${sourceUserId.take(8)}")
-                logger.log("inbound model signal dropped: contextId does not name the authenticated sender")
+            val signal = msg.typingSignal
+            if (signal.contextId.isBlank()) return
+            val deviceId = senderDeviceId ?: run {
+                log("TYPING DROPPED: authenticated sender device is missing")
                 return
             }
-
-            // Identity comes from the authenticated envelope, never the payload:
-            // the device from the decrypted session, the display name from the friend graph.
-            // authorDeviceId is the sending device UUID proven by the session
-            // MAC; a user id in that field would be a false claim.
-            val authorDeviceId = senderDeviceId ?: run {
-                log("SIGNAL DROPPED (inbound): authenticated sender device is missing")
-                return
-            }
-            val senderUsername = friends.getAccepted().find { it.userId == sourceUserId }?.username ?: sourceUserId
-            val data = mapOf<String, Any?>(
-                "conversationId" to sig.contextId,
-                "senderUsername" to senderUsername,
-            )
-
-            if (signalName == "stoppedTyping") {
-                signalManager.clear(sig.model, "typing", data, authorDeviceId)
-            } else {
-                signalManager.receive(sig.model, signalName, data, authorDeviceId)
+            when (WireCodec.decodeTypingState(signal.state)) {
+                TypingState.STARTED -> typingTracker.receive(
+                    contextId = signal.contextId,
+                    senderUserId = sourceUserId,
+                    senderDeviceId = deviceId,
+                    senderDisplayName = friends.get(sourceUserId)?.username ?: sourceUserId,
+                )
+                TypingState.STOPPED -> typingTracker.clear(signal.contextId, deviceId)
+                null -> log("TYPING DROPPED: unspecified or unknown state")
             }
         } catch (e: Exception) {
-            // Never let signal handling crash the envelope loop.
-            log("model signal handling failed: ${e.message}")
+            log("typing signal handling failed: ${e.message}")
         }
     }
 
@@ -1108,19 +1035,10 @@ class ObscuraClient(
 
         // Import device list from approval
         val approvedDevices = approval.ownDevicesList.map { d ->
-            FriendDeviceInfo(d.deviceUuid, d.deviceId, d.deviceName)
+            FriendDeviceInfo(d.id, d.name)
         }
         if (approvedDevices.isNotEmpty()) {
             devices.setOwnDevices(approvedDevices)
-        }
-
-        // Store identity keys from approval
-        val identity = devices.getIdentity()
-        if (identity != null) {
-            devices.storeIdentity(identity.copy(
-                p2pPublicKey = approval.p2PPublicKey?.toByteArray()?.takeIf { it.isNotEmpty() },
-                recoveryPublicKey = approval.recoveryPublicKey?.toByteArray()?.takeIf { it.isNotEmpty() }
-            ))
         }
 
         // Import friend data from approval
@@ -1153,98 +1071,42 @@ class ObscuraClient(
         payload: ByteArray,
     ) = contentService.sendEntry(recipientUserIds, modelKey, entryId, sentAt, payload)
 
-    // ── Ephemeral signals (typing, read receipts) ────────────────────────────────────────────
-    //
-    // `modelKey` is opaque, exactly as it is on the inbox and the entry store: it names the app's
-    // conversation namespace and the kit neither parses nor validates it.
+    suspend fun sendTyping(
+        recipientUserIds: List<String>,
+        contextId: String,
+        state: TypingState,
+    ) {
+        require(contextId.isNotBlank()) { "contextId must not be blank" }
+        val ownDeviceId = deviceId ?: throw ObscuraError.NotAuthenticated()
+        if (!typingTracker.shouldSend(contextId, state, ownDeviceId)) return
+
+        val message = ClientMessage.newBuilder()
+            .setTimestamp(System.currentTimeMillis())
+            .setTypingSignal(typingSignal {
+                this.contextId = contextId
+                this.state = WireCodec.encodeTypingState(state)
+            })
+            .build()
+        for (recipientUserId in recipientUserIds.distinct().filter { it != userId }) {
+            messageSender.sendToAllDevices(recipientUserId, message)
+        }
+    }
 
     /**
-     * Announce that this user is typing in a conversation.
-     *
-     * Throttled by `SignalManager` to at most once every 2s. Delivered to the conversation's
-     * participants only — never broadcast; the audience comes from the canonical two-party
-     * `conversationId`, and a value that does not name exactly two participants is dropped rather
-     * than widened.
-     */
-    suspend fun sendTyping(modelKey: String, conversationId: String) =
-        signalManager.emit(
-            modelKey, "typing",
-            mapOf("conversationId" to conversationId, "senderUsername" to (username ?: "")),
-            deviceId ?: "",
-        )
-
-    /** Explicitly stop typing. */
-    suspend fun stopTyping(modelKey: String, conversationId: String) =
-        signalManager.emit(
-            modelKey, "stoppedTyping",
-            mapOf("conversationId" to conversationId, "senderUsername" to (username ?: "")),
-            deviceId ?: "",
-        )
-
-    /**
-     * Who is currently typing in a conversation, by display name.
+     * Who is currently typing in a context, by display name.
      *
      * Auto-expires; a signal with no refresh disappears on its own, which is what makes signals
      * droppable (`KIT_API.md` §4) rather than something the inbox has to carry.
      */
-    fun observeTyping(modelKey: String, conversationId: String): Flow<List<String>> =
-        signalManager.observe(modelKey, "typing", conversationId)
+    fun observeTyping(contextId: String): Flow<List<String>> = typingTracker.observe(contextId)
 
-    /**
-     * The send half of [SignalManager] — wired to its `sendSignal` callback in `init`.
-     *
-     * Ephemeral signal audiences derive from a canonical two-party
-     * conversation id and fail closed when it cannot be resolved.
-     */
-    private suspend fun deliverSignalToConversation(
-        modelName: String,
-        signalName: String,
-        signalData: Map<String, Any?>,
-    ) {
-        val kind = WireCodec.encodeSignalKind(signalName)
-        val ctxId = signalData["conversationId"] as? String ?: ""
-        val participants = ctxId.split("_").filter { it.isNotBlank() }
-
-        if (participants.size != 2) {
-            // Refusing to broadcast a 1:1 signal. Dropping an ephemeral typing indicator
-            // costs nothing; guessing an audience for it leaks the conversation.
-            log("SIGNAL DROPPED: model=$modelName kind=$signalName contextId=\"$ctxId\" is not a canonical two-party id")
-            logger.log("signal dropped: contextId is not a canonical two-party value — refusing to broadcast a 1:1 signal")
-        } else {
-            val signalMsg = ClientMessage.newBuilder()
-                .setTimestamp(System.currentTimeMillis())
-                .setModelSignal(modelSignal {
-                    model = modelName
-                    this.kind = kind
-                    contextId = ctxId
-                })
-                .build()
-            authManager.ensureFreshToken()
-            // Everyone in the conversation except this user. Own devices are deliberately
-            // excluded: a typing indicator is for the other party, and echoing it to your
-            // own devices is noise the app has never asked for.
-            val recipients = participants.filter { it != session.userId }
-            for (userId in recipients) {
-                var deviceIds = messenger.getDeviceIdsForUser(userId)
-                if (deviceIds.isEmpty()) {
-                    try { messenger.fetchPreKeyBundles(userId) } catch (e: Exception) { log("prekey bundle fetch failed: ${e.message}") }
-                    deviceIds = messenger.getDeviceIdsForUser(userId)
-                }
-                for (devId in deviceIds) {
-                    messenger.queueMessage(devId, signalMsg, userId)
-                }
-            }
-            messenger.flushMessages()
-        }
-    }
-
-    suspend fun uploadAttachment(data: ByteArray): Pair<String, Long> = contentService.uploadAttachment(data)
+    suspend fun uploadAttachment(data: ByteArray): String = contentService.uploadAttachment(data)
     suspend fun downloadAttachment(id: String): ByteArray = contentService.downloadAttachment(id)
-    suspend fun downloadDecryptedAttachment(id: String, contentKey: ByteArray, nonce: ByteArray, expectedHash: ByteArray? = null): ByteArray =
-        contentService.downloadDecryptedAttachment(id, contentKey, nonce, expectedHash)
+    suspend fun downloadDecryptedAttachment(id: String, contentKey: ByteArray, nonce: ByteArray): ByteArray =
+        contentService.downloadDecryptedAttachment(id, contentKey, nonce)
 
     suspend fun befriend(targetUserId: String, targetUsername: String) = friendshipManager.befriend(targetUserId, targetUsername)
-    suspend fun acceptFriend(targetUserId: String, targetUsername: String) = friendshipManager.acceptFriend(targetUserId, targetUsername)
+    suspend fun acceptFriend(targetUserId: String) = friendshipManager.acceptFriend(targetUserId)
 
     suspend fun announceDevices() = deviceManager.announceDevices()
     /**
@@ -1253,8 +1115,7 @@ class ObscuraClient(
      */
     fun generateLinkCode(): String {
         val did = deviceId ?: throw ObscuraError.NotProvisioned("Not provisioned — call loginAndProvision first")
-        val identityKey = signalStore.getIdentityKeyPair().publicKey.serialize()
-        val generated = LinkCode.generate(did, did, identityKey)
+        val generated = LinkCode.generate(did)
         session.pendingLinkChallenge = generated.challenge
         return generated.code
     }
@@ -1276,11 +1137,6 @@ class ObscuraClient(
     suspend fun approveLink(newDeviceId: String, challengeResponse: ByteArray) =
         deviceManager.approveLink(newDeviceId, challengeResponse)
     suspend fun takeoverDevice() = deviceManager.takeoverDevice()
-
-    internal suspend fun resetSessionWith(targetUserId: String, reason: String = "manual") =
-        sessionResetService.resetSessionWith(targetUserId, reason)
-    internal suspend fun resetAllSessions(reason: String = "manual") =
-        sessionResetService.resetAllSessions(reason)
 
     companion object {
         // See [decryptFailures].
@@ -1340,11 +1196,8 @@ internal fun shouldForceReconnectAfterPush(
 /**
  * Row-to-[FriendData] projection for [ObscuraClient.friendList].
  *
- * Distinct from [FriendStore]'s mapping in exactly one respect: it drops `recoveryPublicKey`.
- * That is not an oversight. [FriendData] is a data class, so its generated `equals` compares
- * `ByteArray` by REFERENCE, and SQLDelight hands back a fresh array on every read — carrying the
- * key here would make each projection unequal to the last, defeating StateFlow conflation and
- * re-emitting an unchanged friend list on every write. Nothing observing this flow reads the key.
+ * Kept as a small explicit projection so the observed facade does not depend on generated
+ * SQLDelight row types.
  */
 private fun Friend.toObservedFriendData(): FriendData {
     return FriendData(

@@ -19,24 +19,15 @@ message EncryptedMessage {
 }
 
 message ClientMessage {
-  // Historical v1/v2 fields and removed payload arms. Reserved so a future
-  // feature cannot accidentally reinterpret an old field number.
-  reserved 1, 10, 11, 12, 15, 16, 32, 40 to 47, 51;
-  reserved "type", "text", "device_recovery_announce", "history_chunk",
-      "settings_sync", "read_sync", "sync_blob", "sent_sync",
-      "content_reference", "chunked_content_reference", "sync_request",
-      "friend_sync";
-
-  uint64 timestamp = 2;
+  uint64 timestamp = 1;
 
   oneof payload {
-    FriendRequest friend_request = 20;
-    FriendResponse friend_response = 21;
-    SessionReset session_reset = 25;
-    DeviceLinkApproval device_link_approval = 30;
-    DeviceAnnounce device_announce = 31;
-    AppEntry app_entry = 50;
-    ModelSignal model_signal = 52;
+    FriendRequest friend_request = 2;
+    FriendAccept friend_accept = 3;
+    DeviceLinkApproval device_link_approval = 4;
+    DeviceAnnounce device_announce = 5;
+    AppEntry app_entry = 6;
+    TypingSignal typing_signal = 7;
   }
 }
 
@@ -44,65 +35,37 @@ message FriendRequest {
   string username = 1;
 }
 
-message FriendResponse {
-  string username = 1;
-  bool accepted = 2;
-}
-
-message SessionReset {
-  string reason = 1;
-}
+message FriendAccept {}
 
 message DeviceInfo {
-  string device_uuid = 1;
-  string device_id = 2;
-  string device_name = 3;
-  bytes signal_identity_key = 4;
+  string id = 1;
+  string name = 2;
 }
 
-// Existing-device approval of a newly provisioned own device.
 message DeviceLinkApproval {
-  reserved 7, 8;
-  reserved "sessions_export", "trusted_ids_export";
-
-  bytes p2p_public_key = 1;
-  bytes p2p_private_key = 2;
-  bytes recovery_public_key = 3;
-  bytes challenge_response = 4;
-  repeated DeviceInfo own_devices = 5;
-  bytes friends_export = 6;
+  bytes challenge_response = 1;
+  repeated DeviceInfo own_devices = 2;
+  bytes friends_export = 3;
 }
 
-// Complete replacement device list. Signed recovery/revocation hardening is
-// kit infrastructure, not application model data.
 message DeviceAnnounce {
   repeated DeviceInfo devices = 1;
-  uint64 timestamp = 2;
-  bool is_revocation = 3;
-  bytes signature = 4;
-  bytes recovery_public_key = 5;
 }
 
 message AppEntry {
-  reserved 3, 6, 7;
-  reserved "op", "signature", "author_device_id";
-
   string model = 1;
   string id = 2;
-  uint64 timestamp = 4;
-  bytes data = 5;
+  uint64 timestamp = 3;
+  bytes data = 4;
 }
 
-enum SignalKind {
-  SIGNAL_KIND_UNSPECIFIED = 0;
-  SIGNAL_KIND_TYPING = 1;
-  SIGNAL_KIND_STOPPED_TYPING = 2;
-  reserved 3;
-  reserved "SIGNAL_KIND_READ";
+enum TypingState {
+  TYPING_STATE_UNSPECIFIED = 0;
+  TYPING_STATE_STARTED = 1;
+  TYPING_STATE_STOPPED = 2;
 }
 
-message ModelSignal {
-  string model = 1;
-  SignalKind kind = 2;
-  string context_id = 3;
+message TypingSignal {
+  string context_id = 1;
+  TypingState state = 2;
 }

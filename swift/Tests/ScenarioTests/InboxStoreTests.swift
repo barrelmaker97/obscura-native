@@ -19,20 +19,18 @@ final class InboxStoreTests: XCTestCase {
     private func record(
         _ envelopeId: String,
         kind: String = "APP_ENTRY",
-        payload: Data = Data("{}".utf8),
+        payload: Data? = nil,
         modelKey: String? = "directMessage"
-    ) -> InboxRecord {
-        InboxRecord(
+    ) -> InboxInsert {
+        InboxInsert(
             envelopeId: envelopeId,
             kind: kind,
-            receivedAt: 1_700_000_000_000,
             senderUserId: "user_peer",
             senderDeviceId: "device_peer",
-            senderDisplayName: "alice",
             modelKey: modelKey,
             entryId: "entry_1",
             sentAt: 1_700_000_000_000,
-            payload: payload
+            payload: payload ?? Data(envelopeId.utf8)
         )
     }
 
@@ -120,7 +118,8 @@ final class InboxStoreTests: XCTestCase {
 
         let rows = try await inbox.peek(limit: 3)
 
-        XCTAssertEqual(rows.map(\.envelopeId), ["env_0", "env_1", "env_2"])
+        XCTAssertEqual(rows.map { String(decoding: $0.payload, as: UTF8.self) },
+                       ["env_0", "env_1", "env_2"])
     }
 
     /// `id` must be monotonic across the whole install, and that is why the column is AUTOINCREMENT.
@@ -154,7 +153,8 @@ final class InboxStoreTests: XCTestCase {
         let depth = try await inbox.depth()
         XCTAssertEqual(depth, 2)
         let remaining = try await inbox.peek()
-        XCTAssertEqual(remaining.map(\.envelopeId), ["env_1", "env_2"])
+        XCTAssertEqual(remaining.map { String(decoding: $0.payload, as: UTF8.self) },
+                       ["env_1", "env_2"])
     }
 
     /// **The 500-id chunking, which the source calls out as load-bearing and nothing tested.**
@@ -267,11 +267,9 @@ final class InboxStoreTests: XCTestCase {
         let rows = try await inbox.peek()
         let row = try XCTUnwrap(rows.first)
 
-        XCTAssertEqual(row.envelopeId, "env_1")
         XCTAssertEqual(row.kind, "APP_ENTRY")
         XCTAssertEqual(row.senderUserId, "user_peer")
         XCTAssertEqual(row.senderDeviceId, "device_peer")
-        XCTAssertEqual(row.senderDisplayName, "alice")
         XCTAssertEqual(row.modelKey, "directMessage")
         XCTAssertEqual(row.entryId, "entry_1")
         XCTAssertEqual(row.payload, payload)
@@ -282,12 +280,14 @@ final class InboxStoreTests: XCTestCase {
     func testAnUnknownArmIsStoredWithNilAppEntryFields() async throws {
         let inbox = try makeInbox()
         try await inbox.put(
-            InboxRecord(
+            InboxInsert(
                 envelopeId: "env_1",
                 kind: "UNKNOWN_ARM",
-                receivedAt: 1_700_000_000_000,
                 senderUserId: "user_peer",
                 senderDeviceId: "device_peer",
+                modelKey: nil,
+                entryId: nil,
+                sentAt: nil,
                 payload: Data([9, 9, 9])
             )
         )
@@ -304,7 +304,7 @@ final class InboxStoreTests: XCTestCase {
 
     // MARK: - §3.3 rule 2 carve-out
 
-    /// A device wipe or remote revocation must be able to destroy decrypted plaintext. Note it takes
+    /// A device wipe must be able to destroy decrypted plaintext. Note it takes
     /// no selector: destroying the whole store is what keeps this a security operation rather than
     /// "drop the oldest when things get tight", which is the policy §3.4 refuses to add.
     func testWipeDestroysEverything() async throws {

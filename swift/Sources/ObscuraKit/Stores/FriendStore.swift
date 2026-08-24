@@ -12,22 +12,16 @@ public struct Friend: Codable, Sendable, Equatable {
     public var username: String
     public var status: FriendStatus
     public var devices: [[String: String]]
-    public var recoveryPublicKey: Data?
     public var devicesUpdatedAt: UInt64
-    public var isVerified: Bool
-    public var verifiedAt: UInt64?
     public var createdAt: UInt64
     public var updatedAt: UInt64
 
-    public init(userId: String, username: String, status: FriendStatus, devices: [[String: String]] = [], recoveryPublicKey: Data? = nil) {
+    public init(userId: String, username: String, status: FriendStatus, devices: [[String: String]] = []) {
         self.userId = userId
         self.username = username
         self.status = status
         self.devices = devices
-        self.recoveryPublicKey = recoveryPublicKey
         self.devicesUpdatedAt = 0
-        self.isVerified = false
-        self.verifiedAt = nil
         self.createdAt = UInt64(Date().timeIntervalSince1970 * 1000)
         self.updatedAt = self.createdAt
     }
@@ -52,9 +46,8 @@ public actor FriendStore {
 
     // MARK: - Reactive Streams (GRDB ValueObservation)
 
-    /// Stream of accepted friends. Emits on every change to the friends table.
-    /// Subscribe once in SwiftUI — re-renders automatically.
-    public nonisolated func observeAccepted() -> AsyncValueObservation<[Friend]> {
+    /// Canonical internal observation of accepted friends.
+    nonisolated func observeAccepted() -> AsyncValueObservation<[Friend]> {
         let observation = ValueObservation.tracking { db -> [Friend] in
             let rows = try Row.fetchAll(db, sql: "SELECT * FROM friends WHERE status = ?",
                                         arguments: [FriendStatus.accepted.rawValue])
@@ -63,8 +56,8 @@ public actor FriendStore {
         return AsyncValueObservation(observation: observation, in: db)
     }
 
-    /// Stream of all friends.
-    public nonisolated func observeAll() -> AsyncValueObservation<[Friend]> {
+    /// Canonical internal observation used to drive the payload-free aggregate wake event.
+    nonisolated func observeAll() -> AsyncValueObservation<[Friend]> {
         let observation = ValueObservation.tracking { db -> [Friend] in
             let rows = try Row.fetchAll(db, sql: "SELECT * FROM friends")
             return rows.compactMap { Self.rowToFriend($0) }
@@ -80,33 +73,11 @@ public actor FriendStore {
         let devicesJson = (try? JSONSerialization.data(withJSONObject: devices)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
 
         try await db.write { db in
-            // `recovery_public_key` is carried across explicitly. INSERT OR REPLACE deletes the old
-            // row, so omitting the column would silently reset a PINNED key to NULL — and a
-            // downgrade to "unpinned" is a downgrade to "unverified" for every subsequent
-            // DEVICE_ANNOUNCE (see `ObscuraClient.routeMessage`). The subselect is NULL for a new
-            // friend, which is the right starting state.
             try db.execute(sql: """
-                INSERT OR REPLACE INTO friends (user_id, username, status, devices, recovery_public_key,
-                                                devices_updated_at, is_verified, created_at, updated_at)
-                VALUES (?, ?, ?, ?, (SELECT recovery_public_key FROM friends WHERE user_id = ?), 0, 0, ?, ?)
-            """, arguments: [userId, username, status.rawValue, devicesJson, userId, now, now])
-        }
-    }
-
-    /// Pin a peer's recovery public key, trust-on-first-use.
-    ///
-    /// This is the write that was missing: the column was READ by `routeMessage`'s DEVICE_ANNOUNCE
-    /// arm and written by nothing, so signature verification there was dead by construction and
-    /// every announce from every sender was accepted unverified.
-    ///
-    /// Deliberately an `UPDATE`, not an upsert: a key is only meaningful attached to a peer we
-    /// already know, and inserting a row here would let an announce from a stranger create a friend
-    /// record. It throws for the same reason the rest of the receive path does — a failed durable
-    /// write must reach the envelope loop so the ack is skipped (SPEC §0.9 rule 3).
-    public func pinRecoveryPublicKey(_ userId: String, _ key: Data) async throws {
-        try await db.write { db in
-            try db.execute(sql: "UPDATE friends SET recovery_public_key = ? WHERE user_id = ?",
-                           arguments: [key, userId])
+                INSERT OR REPLACE INTO friends (
+                    user_id, username, status, devices, devices_updated_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 0, ?, ?)
+            """, arguments: [userId, username, status.rawValue, devicesJson, now, now])
         }
     }
 
@@ -193,12 +164,9 @@ public actor FriendStore {
             userId: row["user_id"],
             username: row["username"],
             status: FriendStatus(rawValue: row["status"]) ?? .pendingSent,
-            devices: devices,
-            recoveryPublicKey: row["recovery_public_key"]
+            devices: devices
         )
         friend.devicesUpdatedAt = UInt64(row["devices_updated_at"] as Int64)
-        friend.isVerified = (row["is_verified"] as Int64) != 0
-        friend.verifiedAt = (row["verified_at"] as Int64?).map { UInt64($0) }
         friend.createdAt = UInt64(row["created_at"] as Int64)
         friend.updatedAt = UInt64(row["updated_at"] as Int64)
         return friend

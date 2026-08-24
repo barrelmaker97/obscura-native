@@ -30,7 +30,7 @@ class StoryAttachmentTests {
 
         // Upload JPEG image
         val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()) + ByteArray(250)
-        val (attId, _) = alice.uploadAttachment(jpeg)
+        val attId = alice.uploadAttachment(jpeg)
         assertTrue(attId.isNotEmpty())
 
         // Send story with media reference
@@ -91,7 +91,7 @@ class StoryAttachmentTests {
 
         // Upload image
         val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()) + ByteArray(500)
-        val (attId, _) = alice.uploadAttachment(jpeg)
+        val attId = alice.uploadAttachment(jpeg)
 
         // Send story with both text and image
         alice.sendStory(bob, "story_combo_${System.currentTimeMillis()}",

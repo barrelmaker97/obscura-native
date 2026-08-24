@@ -1,10 +1,11 @@
 package com.obscura.kit.wire
 
+import com.obscura.kit.TypingState
 import obscura.client.v1.Client
 
 /**
- * Single source of truth for translating the `client.proto` wire enum to the
- * kit's app-facing signal names.
+ * Single source of truth for translating the `ClientMessage.payload` arm to
+ * the app-facing message kind.
  *
  * Keeping every mapping here prevents call-site drift. The shared
  * `protocol/conformance/wire.json` vectors pin cross-platform behavior
@@ -22,18 +23,14 @@ object WireCodec {
     fun decodeType(case: Client.ClientMessage.PayloadCase): String =
         if (case == Client.ClientMessage.PayloadCase.PAYLOAD_NOT_SET) "" else case.name
 
-    // ─── SignalKind ↔ app signal name ─────────────────────────────────────────
-
-    fun encodeSignalKind(name: String): Client.SignalKind = when (name) {
-        "typing" -> Client.SignalKind.SIGNAL_KIND_TYPING
-        "stoppedTyping" -> Client.SignalKind.SIGNAL_KIND_STOPPED_TYPING
-        else -> Client.SignalKind.SIGNAL_KIND_UNSPECIFIED
+    fun decodeTypingState(state: Client.TypingState): TypingState? = when (state) {
+        Client.TypingState.TYPING_STATE_STARTED -> TypingState.STARTED
+        Client.TypingState.TYPING_STATE_STOPPED -> TypingState.STOPPED
+        Client.TypingState.TYPING_STATE_UNSPECIFIED, Client.TypingState.UNRECOGNIZED -> null
     }
 
-    /** @return the internal signal name, or null for UNSPECIFIED/unrecognized (caller ignores). */
-    fun decodeSignalKind(kind: Client.SignalKind): String? = when (kind) {
-        Client.SignalKind.SIGNAL_KIND_TYPING -> "typing"
-        Client.SignalKind.SIGNAL_KIND_STOPPED_TYPING -> "stoppedTyping"
-        else -> null
+    fun encodeTypingState(state: TypingState): Client.TypingState = when (state) {
+        TypingState.STARTED -> Client.TypingState.TYPING_STATE_STARTED
+        TypingState.STOPPED -> Client.TypingState.TYPING_STATE_STOPPED
     }
 }

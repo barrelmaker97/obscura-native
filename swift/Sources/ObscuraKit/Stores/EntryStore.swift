@@ -1,22 +1,33 @@
 import Foundation
 import GRDB
 
-/// One stored entry. `data` is an opaque JSON string the kit never parses.
+/// One stored entry. `data` and `localMetadata` are opaque strings the kit never parses.
 ///
 /// `sentAt` and `authorDeviceId` are carried because the app's merge needs them — REPLACE is a total
 /// order on `(sentAt, authorDeviceId)` (`KIT_API.md` §8.2). They are metadata in columns beside the
 /// payload, not fields the kit reads out of it.
+///
+/// `localMetadata` is app-owned local-only bookkeeping. It is persisted beside the entry and is
+/// never serialized into `AppEntry` or sent to another device.
 public struct StoredEntry: Sendable, Equatable {
     public let id: String
     public let data: String
     public let sentAt: UInt64
     public let authorDeviceId: String
+    public let localMetadata: String?
 
-    public init(id: String, data: String, sentAt: UInt64, authorDeviceId: String) {
+    public init(
+        id: String,
+        data: String,
+        sentAt: UInt64,
+        authorDeviceId: String,
+        localMetadata: String? = nil
+    ) {
         self.id = id
         self.data = data
         self.sentAt = sentAt
         self.authorDeviceId = authorDeviceId
+        self.localMetadata = localMetadata
     }
 }
 
@@ -54,9 +65,11 @@ public actor EntryStore {
         try await db.write { db in
             try db.execute(sql: """
                 INSERT OR REPLACE INTO model_entries
-                    (model_name, id, data, timestamp, author_device_id)
-                VALUES (?, ?, ?, ?, ?)
-            """, arguments: [model, entry.id, entry.data, sentAt, entry.authorDeviceId])
+                    (model_name, id, data, timestamp, author_device_id, local_metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, arguments: [
+                model, entry.id, entry.data, sentAt, entry.authorDeviceId, entry.localMetadata,
+            ])
         }
     }
 
@@ -64,7 +77,8 @@ public actor EntryStore {
     public func all(model: String) async throws -> [StoredEntry] {
         try await db.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT id, data, timestamp, author_device_id FROM model_entries WHERE model_name = ?
+                SELECT id, data, timestamp, author_device_id, local_metadata
+                FROM model_entries WHERE model_name = ?
             """, arguments: [model]).map { row in
                 StoredEntry(
                     id: row["id"],
@@ -73,7 +87,8 @@ public actor EntryStore {
                     // saturates: `UInt64(_:)` TRAPS on a negative, and a row written by a peer kit
                     // (Kotlin surfaces proto3 `uint64` as a signed Long) must never crash a read.
                     sentAt: UInt64(max(0, row["timestamp"] as Int64)),
-                    authorDeviceId: row["author_device_id"]
+                    authorDeviceId: row["author_device_id"],
+                    localMetadata: row["local_metadata"]
                 )
             }
         }

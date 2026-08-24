@@ -48,20 +48,35 @@ client.send(
 // RECEIVE: a durable inbox, drained by the app. peek / consume / discard / depth,
 // and there is no insert — the kit is the only writer.
 for (row in client.inbox.peek(limit = 50)) {
-    // row.senderUserId is authenticated; row.senderDisplayName comes from OUR friend
-    // graph, never from the payload (SPEC §0.5). row.payload is the bytes we sent above.
+    // Sender identity comes from transport/session metadata, never from the payload.
+    // row.payload is the bytes we sent above.
     handle(row)
 }
 client.inbox.consume(processedIds)
 
 // STORE: a blind key/value table for whatever the app made of them. No merge,
 // expiry, or query API — the app decides who wins.
-client.entries.put("pix", StoredEntry(id = entryId, data = json, sentAt = t, authorDeviceId = d))
+client.entries.put(
+    "pix",
+    StoredEntry(
+        id = entryId,
+        data = json,
+        sentAt = t,
+        authorDeviceId = d,
+        localMetadata = """{"uploadState":"complete"}""", // local-only; never sent
+    ),
+)
 client.entries.all("pix")
 
+// Aggregate friend changes are payload-free wake-ups. Pull canonical rows after each wake.
+client.friendsChanged.collect {
+    render(client.getFriends())
+}
+val debugLines = client.getDebugLog() // pull-only; never emitted as live events
+
 // Ephemeral typing indicators (not persisted, auto-expire after 3s)
-client.sendTyping("directMessage", conversationId)
-client.observeTyping("directMessage", conversationId)  // Flow<List<String>>
+client.sendTyping(listOf(friendUserId), contextId, TypingState.STARTED)
+client.observeTyping(contextId)  // Flow<List<String>>
 ```
 
 See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for auth and device linking, and
@@ -100,10 +115,9 @@ public facade against a configured `obscura-server`.
 - **The durable inbox** (`KIT_API.md` §3) — `peek` / `consume` / `discard` / `depth`, deduped on
   `envelope_id` while a row remains pending.
 - **The entry store** (§8.1) — `put` / `all` / `delete` over opaque JSON. Three methods, no fourth.
-- **Friend graph** — request/response/accept, device lists learned from DEVICE_ANNOUNCE, with the
-  peer's recovery key pinned trust-on-first-use.
-- **Device provisioning, linking and revocation** — `loginAndProvision()` → `PENDING_APPROVAL` →
-  QR/link-code approval, which carries the p2p keys, own-device list and friends export.
+- **Friend graph** — request/accept, with device lists learned from DEVICE_ANNOUNCE.
+- **Device provisioning and linking** — `loginAndProvision()` → `PENDING_APPROVAL` →
+  QR/link-code approval, which carries the own-device list and friends export.
 - **Transport** — REST + gateway WebSocket with auto-reconnect and token refresh; the offline queue
   is the server's, not ours.
 - **Attachment crypto** — upload/download with an AES key shipped over Signal.
@@ -112,7 +126,7 @@ public facade against a configured `obscura-server`.
   retries, so it is not proof that the server queue is empty. Notification policy stays in the app;
   the kit never posts one.
 - **Ephemeral signals** — typing indicators, in memory only, throttled to 2s and expiring after 3s.
-  Audience is the canonical two-party conversation id, resolved fail-closed on both send and receive.
+  The caller supplies explicit recipients and a typed STARTED/STOPPED state; the context id is opaque.
 
 ## What this kit deliberately does not do
 

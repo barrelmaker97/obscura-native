@@ -81,11 +81,10 @@ class TwoDeviceSendTests {
         val aliceId = alice1!!.userId!!
         println("── $tag ──")
         // The friend store's per-device list is rebuildDeviceMap's input.
-        // registrationId is metadata; it does not select the Signal address.
         val storeDevices = b.friendList.value.find { it.userId == aliceId }?.devices ?: emptyList()
         println("  bob's accepted-friends store lists ${storeDevices.size} device(s) for Alice " +
             "(this is what rebuildDeviceMap reads):")
-        storeDevices.forEach { println("    ${it.deviceId} registrationId=${it.registrationId}") }
+        storeDevices.forEach { println("    ${it.id} ${it.name}") }
         val devIds = b.messenger.getDeviceIdsForUser(aliceId)
         println("  bob fans out to ${devIds.size} device(s) for Alice:")
         for (d in devIds) {
@@ -192,13 +191,13 @@ class TwoDeviceSendTests {
         }
         val storeDevices = bob!!.friendList.value.find { it.userId == aliceId }?.devices ?: emptyList()
         println("  after announceDevices(), bob's friend store lists ${storeDevices.size} device(s) for Alice:")
-        storeDevices.forEach { println("    ${it.deviceId} registrationId=${it.registrationId}") }
+        storeDevices.forEach { println("    ${it.id} ${it.name}") }
         assertEquals(2, storeDevices.size,
             "Bob's friend store must list both of Alice's devices after a real announceDevices() " +
-                "Got: ${storeDevices.map { it.deviceId }}")
+                "Got: ${storeDevices.map { it.id }}")
         assertTrue(
-            storeDevices.map { it.deviceId }.toSet() == setOf(alice1!!.deviceId, alice2!!.deviceId),
-            "Bob learned the wrong device UUIDs: ${storeDevices.map { it.deviceId }}"
+            storeDevices.map { it.id }.toSet() == setOf(alice1!!.deviceId, alice2!!.deviceId),
+            "Bob learned the wrong device UUIDs: ${storeDevices.map { it.id }}"
         )
 
         // Reconnect rebuilds from the populated friend-device list. The

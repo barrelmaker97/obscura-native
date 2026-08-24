@@ -103,14 +103,11 @@ class FriendGraphIntegrityTests {
         delay(500)
 
         // No friendship in either direction. The stranger fetches Alice's prekeys (public to any
-        // authenticated user) and sends a FRIEND_RESPONSE claiming Alice accepted them.
+        // authenticated user) and sends a FRIEND_ACCEPT claiming Alice accepted them.
         stranger.messenger.fetchPreKeyBundles(alice.userId!!)
         val forged = ClientMessage.newBuilder()
             .setTimestamp(System.currentTimeMillis())
-            .setFriendResponse(obscura.client.v1.friendResponse {
-                username = "Mum"
-                accepted = true
-            })
+            .setFriendAccept(obscura.client.v1.friendAccept {})
             .build()
         stranger.messenger.queueMessage(alice.deviceId!!, forged, alice.userId!!)
         stranger.messenger.flushMessages()
@@ -125,7 +122,7 @@ class FriendGraphIntegrityTests {
         val injected = alice.friendList.value.find { it.userId == stranger.userId }
         println("  alice's graph after unsolicited acceptance: ${alice.friendList.value.map { it.username to it.status }}")
         assertTrue(injected == null || injected.status != FriendStatus.ACCEPTED,
-            "an unsolicited FRIEND_RESPONSE MUST NOT create an accepted friend — got $injected")
+            "an unsolicited FRIEND_ACCEPT MUST NOT create an accepted friend — got $injected")
 
         alice.disconnect(); stranger.disconnect()
     }

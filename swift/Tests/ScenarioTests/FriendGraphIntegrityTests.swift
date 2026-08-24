@@ -53,10 +53,7 @@ final class FriendGraphIntegrityTests: XCTestCase {
 
         // No friendship in either direction: the stranger simply claims Alice accepted them.
         var forged = Obscura_Client_V1_ClientMessage()
-        var resp = Obscura_Client_V1_FriendResponse()
-        resp.username = "Mum"
-        resp.accepted = true
-        forged.friendResponse = resp
+        forged.friendAccept = Obscura_Client_V1_FriendAccept()
         forged.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
         try await stranger.sendRaw(to: try XCTUnwrap(alice.userId), try forged.serializedData())
 
@@ -66,7 +63,7 @@ final class FriendGraphIntegrityTests: XCTestCase {
         let injected = await alice.friends.getFriend(try XCTUnwrap(stranger.userId))
         print("  alice's graph after unsolicited acceptance: \(await alice.friends.getAll().map { ($0.username, $0.status.rawValue) })")
         XCTAssertFalse(injected?.status == .accepted,
-            "an unsolicited FRIEND_RESPONSE MUST NOT create an accepted friend — got \(String(describing: injected))")
+            "an unsolicited FRIEND_ACCEPT MUST NOT create an accepted friend — got \(String(describing: injected))")
 
         alice.disconnectWebSocket()
         stranger.disconnectWebSocket()

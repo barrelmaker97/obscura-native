@@ -77,16 +77,14 @@ final class NewMethodTests: XCTestCase {
 
         XCTAssertEqual(encrypted.contentKey.count, 32)
         XCTAssertEqual(encrypted.nonce.count, 12)
-        XCTAssertEqual(encrypted.sizeBytes, plaintext.count)
         XCTAssertNotEqual(encrypted.ciphertext, plaintext)
 
         let decrypted1 = try AttachmentCrypto.decrypt(encrypted.ciphertext, contentKey: encrypted.contentKey, nonce: encrypted.nonce)
         XCTAssertEqual(decrypted1, plaintext)
 
-        let decrypted2 = try AttachmentCrypto.decrypt(encrypted.ciphertext, contentKey: encrypted.contentKey, nonce: encrypted.nonce, expectedHash: encrypted.contentHash)
-        XCTAssertEqual(decrypted2, plaintext)
-
-        let badHash = Data(repeating: 0, count: 32)
-        XCTAssertThrowsError(try AttachmentCrypto.decrypt(encrypted.ciphertext, contentKey: encrypted.contentKey, nonce: encrypted.nonce, expectedHash: badHash))
+        var tampered = encrypted.ciphertext
+        tampered[tampered.startIndex] ^= 0x01
+        XCTAssertThrowsError(try AttachmentCrypto.decrypt(
+            tampered, contentKey: encrypted.contentKey, nonce: encrypted.nonce))
     }
 }

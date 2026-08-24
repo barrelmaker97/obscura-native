@@ -50,8 +50,8 @@ final class TwoDeviceSendTests: XCTestCase {
     /// one of them.
     ///
     /// **Known divergence:** Swift has no `DEVICE_LINK_APPROVAL` receive case,
-    /// so the approvee does not import the p2p keypair, recovery key, friend
-    /// export, or complete own-device list. This test asserts only the supported
+    /// so the approvee does not import the friend export or complete own-device
+    /// list. This test asserts only the supported
     /// approver side.
     func testLinkApprovalPopulatesTheApproverRegistry() async throws {
         let alice1 = try await ObscuraTestClient.register()
@@ -100,8 +100,8 @@ final class TwoDeviceSendTests: XCTestCase {
         try await bob.befriend(alice1.userId!, username: alice1.username)
         _ = try await alice1.waitForMessage(timeout: 15)   // FRIEND_REQUEST on device 1
         _ = try? await alice2.waitForMessage(timeout: 10)  // ...and on device 2 (fan-out)
-        try await alice1.acceptFriend(bob.userId!, username: bob.username)
-        _ = try await bob.waitForMessage(timeout: 15)      // FRIEND_RESPONSE
+        try await alice1.acceptFriend(bob.userId!)
+        _ = try await bob.waitForMessage(timeout: 15)      // FRIEND_ACCEPT
 
         // (a) Fresh send with the device map from the prekey fetch.
         try await bob.client.send(

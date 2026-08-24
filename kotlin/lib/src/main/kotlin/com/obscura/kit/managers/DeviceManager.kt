@@ -25,11 +25,10 @@ internal class DeviceManager(
             .setDeviceAnnounce(obscura.client.v1.deviceAnnounce {
                 for (d in ownDevices) {
                     this.devices.add(obscura.client.v1.deviceInfo {
-                        deviceUuid = d.deviceId; deviceId = d.deviceId; deviceName = d.deviceName
+                        id = d.deviceId
+                        name = d.deviceName
                     })
                 }
-                timestamp = System.currentTimeMillis()
-                isRevocation = false
             }).build()
 
         for (friend in friends.getAccepted()) {
@@ -38,8 +37,6 @@ internal class DeviceManager(
     }
 
     suspend fun approveLink(newDeviceId: String, challengeResponse: ByteArray) {
-        val identity = devices.getIdentity()
-
         // Include the device being approved so the recipient can persist a complete own-device
         // registry. Resolve its human name from the server before shipping the list.
         val newDeviceName = try {
@@ -60,20 +57,12 @@ internal class DeviceManager(
         val msg = ClientMessage.newBuilder()
             .setTimestamp(System.currentTimeMillis())
             .setDeviceLinkApproval(obscura.client.v1.deviceLinkApproval {
-                if (identity?.p2pPublicKey != null) {
-                    p2PPublicKey = com.google.protobuf.ByteString.copyFrom(identity.p2pPublicKey)
-                }
-                if (identity?.p2pPrivateKey != null) {
-                    p2PPrivateKey = com.google.protobuf.ByteString.copyFrom(identity.p2pPrivateKey)
-                }
-                if (identity?.recoveryPublicKey != null) {
-                    recoveryPublicKey = com.google.protobuf.ByteString.copyFrom(identity.recoveryPublicKey)
-                }
                 this.challengeResponse = com.google.protobuf.ByteString.copyFrom(challengeResponse)
 
                 for (d in ownDeviceList) {
                     this.ownDevices.add(obscura.client.v1.deviceInfo {
-                        deviceUuid = d.deviceId; deviceId = d.deviceId; deviceName = d.deviceName
+                        id = d.deviceId
+                        name = d.deviceName
                     })
                 }
 
@@ -92,7 +81,6 @@ internal class DeviceManager(
 
     suspend fun takeoverDevice() {
         val (identityKeyPair, regId) = signalStore.generateIdentity()
-        session.registrationId = regId
 
         val signedPreKey = SignalKeyUtils.generateSignedPreKey(signalStore, identityKeyPair, 1)
         val oneTimePreKeys = SignalKeyUtils.generateOneTimePreKeys(signalStore, 1, 100)
@@ -113,7 +101,6 @@ internal class DeviceManager(
         messenger.mapDevice(
             requireNotNull(session.deviceId) { "deviceId not set - call register/login first" },
             requireNotNull(session.userId) { "userId not set - call register/login first" },
-            regId
         )
     }
 }

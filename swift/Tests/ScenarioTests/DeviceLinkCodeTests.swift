@@ -37,7 +37,7 @@ final class DeviceLinkCodeTests: XCTestCase {
 
         try await device1.befriend(bob.userId!, username: bob.username)
         _ = try await bob.waitForMessage(timeout: 10)
-        try await bob.client.acceptFriend(device1.userId!, username: username)
+        try await bob.client.acceptFriend(device1.userId!)
         _ = try await device1.waitForMessage(timeout: 10)
         await rateLimitDelay()
 

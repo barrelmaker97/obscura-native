@@ -6,17 +6,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * One stored entry. `data` is an opaque JSON string the kit never parses.
+ * One stored entry. `data` and `localMetadata` are opaque strings the kit never parses.
  *
  * `sentAt` and `authorDeviceId` are carried because the app's merge needs them — REPLACE is a total
  * order on `(sentAt, authorDeviceId)` (`KIT_API.md` §8.2). They are metadata in columns beside the
  * payload, not fields the kit reads out of it.
+ *
+ * `localMetadata` is app-owned local-only bookkeeping. It is persisted beside the entry and is
+ * never serialized into `AppEntry` or sent to another device.
  */
 data class StoredEntry(
     val id: String,
     val data: String,
     val sentAt: Long,
     val authorDeviceId: String,
+    val localMetadata: String? = null,
 )
 
 /**
@@ -46,6 +50,7 @@ class EntryStore internal constructor(private val db: ObscuraDatabase) {
             data_ = entry.data,
             timestamp = entry.sentAt,
             author_device_id = entry.authorDeviceId,
+            local_metadata = entry.localMetadata,
         )
     }
 
@@ -57,6 +62,7 @@ class EntryStore internal constructor(private val db: ObscuraDatabase) {
                 data = row.data_,
                 sentAt = row.timestamp,
                 authorDeviceId = row.author_device_id,
+                localMetadata = row.local_metadata,
             )
         }
     }

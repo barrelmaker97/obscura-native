@@ -30,8 +30,8 @@ decrypt through the sender device UUID's Signal session
     ↓
 classify the declared client.proto arm
     ├─ APP_ENTRY / unknown → inbox.put
-    ├─ friend/device/session arms              → kit-owned handler
-    ├─ MODEL_SIGNAL                            → in-memory signal store
+    ├─ friend/device arms                      → kit-owned handler
+    ├─ TYPING_SIGNAL                           → in-memory typing tracker
     └─ declared unimplemented arms             → diagnose and drop
     ↓
 emit optional wake-up event
