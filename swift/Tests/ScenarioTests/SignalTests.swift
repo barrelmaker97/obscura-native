@@ -1,7 +1,7 @@
 import XCTest
 @testable import ObscuraKit
 
-/// Tests for ECS model signals — typing indicators, read receipts.
+/// Tests for ephemeral typing signals.
 /// Online: signal arrives at receiver. Offline: signals are dropped (ephemeral).
 final class SignalTests: XCTestCase {
 

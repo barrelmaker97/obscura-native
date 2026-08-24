@@ -23,7 +23,7 @@ final class AuthorDeviceIdTests: XCTestCase {
         )
 
         let received = try await alice.waitForMessage(timeout: 15)
-        XCTAssertEqual(received.type, "MODEL_SYNC")
+        XCTAssertEqual(received.type, "APP_ENTRY")
         XCTAssertEqual(received.sourceUserId, bobUserId, "sourceUserId is Bob's USER id")
 
         // The wake-up carries the sender's real device UUID, not the user id.

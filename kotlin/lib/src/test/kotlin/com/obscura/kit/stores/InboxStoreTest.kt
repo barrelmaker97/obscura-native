@@ -14,22 +14,22 @@ import org.junit.jupiter.api.Test
  * rule, and most of them exist because getting the rule wrong loses messages permanently — the row
  * is the only copy once the kit has acked, because **an ACK is a DELETE**.
  */
-class InboxDomainTest {
+class InboxStoreTest {
 
     private lateinit var db: ObscuraDatabase
-    private lateinit var inbox: InboxDomain
+    private lateinit var inbox: InboxStore
 
     @BeforeEach
     fun setup() {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         ObscuraDatabase.Schema.create(driver)
         db = ObscuraDatabase(driver)
-        inbox = InboxDomain(db)
+        inbox = InboxStore(db)
     }
 
     private fun record(
         envelopeId: String,
-        kind: String = "MODEL_SYNC",
+        kind: String = "APP_ENTRY",
         payload: ByteArray = "{}".toByteArray(),
         modelKey: String? = "directMessage",
     ) = InboxRecord(
@@ -98,7 +98,7 @@ class InboxDomainTest {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         ObscuraDatabase.Schema.create(driver)
         val db = ObscuraDatabase(driver)
-        val store = InboxDomain(db)
+        val store = InboxStore(db)
         driver.execute(null, "DROP TABLE InboxRow", 0)
 
         assertThrows(Exception::class.java) {
@@ -237,7 +237,7 @@ class InboxDomainTest {
         val row = inbox.peek().single()
 
         assertEquals("env_1", row.envelopeId)
-        assertEquals("MODEL_SYNC", row.kind)
+        assertEquals("APP_ENTRY", row.kind)
         assertEquals("user_peer", row.senderUserId)
         assertEquals("device_peer", row.senderDeviceId)
         assertEquals("alice", row.senderDisplayName)
@@ -247,11 +247,11 @@ class InboxDomainTest {
     }
 
     /**
-     * An unknown arm has no ModelSync to derive from, so those columns are null (§4.1). The row
+     * An unknown arm has no AppEntry to derive from, so those columns are null (§4.1). The row
      * still exists, which is the point — the message is preserved rather than destroyed.
      */
     @Test
-    fun `an unknown arm is stored with null ModelSync fields`() = runBlocking {
+    fun `an unknown arm is stored with null AppEntry fields`() = runBlocking {
         inbox.put(
             record("env_1", kind = "UNKNOWN_ARM", modelKey = null)
                 .copy(entryId = null, sentAt = null)

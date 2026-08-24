@@ -6,7 +6,7 @@ import java.util.UUID
 
 /**
  * UuidCodec is the wire-format bridge between Kotlin's UUID and protobuf
- * ByteString used by MessengerDomain. Round-trip is the invariant that
+ * ByteString used by Messenger. Round-trip is the invariant that
  * matters — a regression here corrupts every message envelope.
  */
 class UuidCodecTest {

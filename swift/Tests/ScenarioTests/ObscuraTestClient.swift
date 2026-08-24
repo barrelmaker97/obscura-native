@@ -13,8 +13,8 @@ public class ObscuraTestClient {
     public var userId: String? { client.userId }
     public var deviceId: String? { client.deviceId }
     public var token: String? { client.token }
-    public var friends: FriendActor { client.friends }
-    public var devices: DeviceActor { client.devices }
+    public var friends: FriendStore { client.friends }
+    public var devices: DeviceStore { client.devices }
     public var api: APIClient { client.api }
     public var gateway: GatewayConnection { client.gateway }
 
@@ -110,7 +110,7 @@ public class ObscuraTestClient {
         await rateLimitDelay()
     }
 
-    public func waitForMessage(timeout: TimeInterval = 10) async throws -> ReceivedMessage {
+    public func waitForMessage(timeout: TimeInterval = 10) async throws -> MessageWakeEvent {
         return try await client.waitForMessage(timeout: timeout)
     }
 

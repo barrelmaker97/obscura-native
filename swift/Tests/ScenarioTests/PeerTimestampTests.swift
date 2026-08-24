@@ -44,7 +44,7 @@ final class PeerTimestampTests: XCTestCase {
 
     /// `EntryStore.put` did `Int64(entry.sentAt)` and `all` did `UInt64(row["timestamp"] as Int64)`.
     /// Both trap, and both are reachable across the bridge: `sentAt` originates in a peer's
-    /// `ModelSync.timestamp` and reaches here by way of the inbox and the app's merge.
+    /// `AppEntry.timestamp` and reaches here by way of the inbox and the app's merge.
     /// `InboxStore.peek` documents the read-end hazard in a five-line comment; its sibling had
     /// neither the guard nor the comment.
     func testEntryStoreSaturatesInsteadOfTrappingAtBothEnds() async throws {

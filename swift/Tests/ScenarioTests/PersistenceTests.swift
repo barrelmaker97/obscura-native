@@ -61,7 +61,7 @@ final class PersistenceTests: XCTestCase {
             payload: Data("before restart".utf8)
         )
         let msg1 = try await bob1.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg1.type, "MODEL_SYNC")
+        XCTAssertEqual(msg1.type, "APP_ENTRY")
 
         // 4. Bob disconnects (simulates app kill)
         bob1.disconnect()
@@ -95,7 +95,7 @@ final class PersistenceTests: XCTestCase {
         await bob2.ensureFreshToken()
         try await bob2.connect()
         let msg2 = try await bob2.waitForMessage(timeout: 15)
-        XCTAssertEqual(msg2.type, "MODEL_SYNC")
+        XCTAssertEqual(msg2.type, "APP_ENTRY")
         let queued = try await bob2.inbox.peek()
         XCTAssertTrue(queued.contains { $0.entryId == "while-dead" })
 
@@ -258,7 +258,7 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(msg.sourceUserId, alice.userId!)
 
         // Check it was routed to the friends store
-        let pending = await bob2.friends.getPending()
+        let pending = await bob2.friends.getAll().filter { $0.status == .pendingReceived }
         XCTAssertEqual(pending.count, 1, "Should have 1 pending friend request")
 
         bob2.disconnect()

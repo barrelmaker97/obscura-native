@@ -50,7 +50,7 @@ final class ReconnectTests: XCTestCase {
             payload: Data("before drop".utf8)
         )
         let msg1 = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg1.type, "MODEL_SYNC")
+        XCTAssertEqual(msg1.type, "APP_ENTRY")
 
         // Simulate gateway disconnect on Bob's side
         await bob.client.gateway.disconnect()
@@ -69,7 +69,7 @@ final class ReconnectTests: XCTestCase {
             payload: Data("after reconnect".utf8)
         )
         let msg2 = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg2.type, "MODEL_SYNC")
+        XCTAssertEqual(msg2.type, "APP_ENTRY")
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()
@@ -117,7 +117,7 @@ final class ReconnectTests: XCTestCase {
 
         // Bob should get the queued story
         let msg = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg.type, "MODEL_SYNC")
+        XCTAssertEqual(msg.type, "APP_ENTRY")
 
         let stored = try await bob.client.inbox.peek(limit: 200).compactMap(\.entryId)
         XCTAssertTrue(stored.contains(beforeId),
@@ -170,7 +170,7 @@ final class ReconnectTests: XCTestCase {
             payload: Data("still alive".utf8)
         )
         let msg = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg.type, "MODEL_SYNC")
+        XCTAssertEqual(msg.type, "APP_ENTRY")
 
         alice.disconnectWebSocket()
         bob.disconnectWebSocket()

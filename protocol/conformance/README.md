@@ -1,6 +1,6 @@
 # Shared conformance vectors
 
-`wire.json` is the executable cross-kit contract for encoding `MODEL_SYNC`,
+`wire.json` is the executable cross-kit contract for encoding `APP_ENTRY`,
 ephemeral signals, and representative app payload bytes into `client.proto`.
 Both kit suites load the same file and must produce equivalent wire messages.
 
@@ -22,7 +22,7 @@ The file has three arrays:
 |---|---|
 | `messageTypes` | Proto payload-arm to app kind mappings. |
 | `signalKinds` | Ephemeral signal mappings. |
-| `roundTrip` | Value-preserving `ModelSync` encode/decode cases. |
+| `roundTrip` | Value-preserving `AppEntry` encode/decode cases. |
 
 Round-trip assertions compare values rather than serialized bytes. Model data is
 JSON, where object key order is not meaningful, and Signal authenticates the

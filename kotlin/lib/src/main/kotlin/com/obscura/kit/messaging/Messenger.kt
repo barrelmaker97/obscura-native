@@ -1,10 +1,12 @@
-package com.obscura.kit.stores
+package com.obscura.kit.messaging
 
 import com.google.protobuf.ByteString
 import com.obscura.kit.crypto.SignalStore
 import com.obscura.kit.crypto.UuidCodec
 import com.obscura.kit.crypto.fromBase64
 import com.obscura.kit.network.APIClient
+import com.obscura.kit.stores.FriendData
+import com.obscura.kit.stores.FriendDeviceInfo
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -32,14 +34,14 @@ data class DecryptedMessage(
 )
 
 /**
- * MessengerDomain - Confined coroutines. Encrypt/decrypt/queue/flush.
+ * Messenger - Confined coroutines. Encrypt/decrypt/queue/flush.
  * Single-threaded dispatcher protects Signal ratchet state.
  *
  * Every Signal session is keyed on the peer's device UUID, not registrationId. A
  * [SignalProtocolAddress] is a local store key; [addressFor] puts the UUID in its name and pins
  * the integer slot to [ADDR_DEVICE_ID]. Send and receive must build the same address.
  */
-class MessengerDomain internal constructor(
+class Messenger internal constructor(
     private val signalStore: SignalStore,
     private val api: APIClient
 ) {

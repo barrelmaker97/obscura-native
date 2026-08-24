@@ -8,14 +8,14 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 /**
- * FriendDomain is the source of truth for the friend list and for a friend's devices. Tests
+ * FriendStore is the source of truth for the friend list and for a friend's devices. Tests
  * exercise the JSON-encoded `devices` blob through the public API to catch silent parse failures
  * (`parseDevices` swallows errors and returns emptyList — the kind of failure that breaks message
  * delivery without throwing).
  */
-class FriendDomainTest {
+class FriendStoreTest {
 
-    private fun newDomain() = FriendDomain(newInMemoryDatabase())
+    private fun newDomain() = FriendStore(newInMemoryDatabase())
 
     @Test
     fun `add then get returns the friend`() = runTest {

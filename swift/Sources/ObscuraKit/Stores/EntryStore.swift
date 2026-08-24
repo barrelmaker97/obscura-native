@@ -46,7 +46,7 @@ public actor EntryStore {
     /// defensiveness (SPEC §0.4).
     public func put(model: String, entry: StoredEntry) async throws {
         // Saturating, not `Int64(_:)`: that TRAPS above `Int64.max`, and a trap is not catchable.
-        // `sentAt` reaches here from a peer's `ModelSync.timestamp` by way of the inbox and the
+        // `sentAt` reaches here from a peer's `AppEntry.timestamp` by way of the inbox and the
         // app's merge, so it is untrusted `uint64` that crossed a bridge. `InboxStore.peek`
         // documents the mirror image of this at the READ end (a negative `sent_at` from Kotlin's
         // signed Long); the write end was left un-hardened.

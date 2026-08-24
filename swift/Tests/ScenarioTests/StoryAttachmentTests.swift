@@ -3,7 +3,7 @@ import XCTest
 
 /// Scenario 10: Story attachments — the **bytes path**, against a real server.
 ///
-/// Pix carries an uploaded attachment id inside an opaque MODEL_SYNC payload.
+/// Pix carries an uploaded attachment id inside an opaque APP_ENTRY payload.
 /// These tests prove that the entry reaches the recipient and that the
 /// recipient can fetch the encrypted bytes it names.
 final class StoryAttachmentTests: XCTestCase {
@@ -32,7 +32,7 @@ final class StoryAttachmentTests: XCTestCase {
         await rateLimitDelay()
 
         let received = try await bob.waitForMessage(timeout: 15)
-        XCTAssertEqual(received.type, "MODEL_SYNC")
+        XCTAssertEqual(received.type, "APP_ENTRY")
         XCTAssertEqual(received.sourceUserId, alice.userId!)
 
         // The inbox row is the delivery — the wake-up above is droppable (§0.9 rule 4).

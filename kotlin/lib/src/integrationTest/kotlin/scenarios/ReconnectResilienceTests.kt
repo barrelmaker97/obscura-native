@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Connection resilience tests — reconnect, message survival, ORM survival.
+ * Connection resilience tests — reconnect, message survival, entry-send survival.
  * All against live server. Matches iOS ReconnectTests.
  */
 class ReconnectResilienceTests {
@@ -62,7 +62,7 @@ class ReconnectResilienceTests {
         val received = mutableListOf<String>()
         repeat(2) {
             val msg = bob.waitForMessage(15_000)
-            received.add(JSONObject(String(msg.raw!!.modelSync.data.toByteArray())).getString("content"))
+            received.add(JSONObject(String(msg.raw!!.appEntry.data.toByteArray())).getString("content"))
         }
         assertTrue(received.contains("while you were gone 1"))
         assertTrue(received.contains("while you were gone 2"))
@@ -87,7 +87,7 @@ class ReconnectResilienceTests {
                 entryId = "story_${System.currentTimeMillis()}",
                 payload = org.json.JSONObject(mapOf("content" to "before")).toString().toByteArray(),
             )
-        val msg1 = bob.waitForType("MODEL_SYNC", 15_000)
+        val msg1 = bob.waitForType("APP_ENTRY", 15_000)
 
         // Alice disconnects and reconnects
         alice.disconnect()
@@ -95,15 +95,15 @@ class ReconnectResilienceTests {
         alice.connect()
         delay(1000)
 
-        // ORM works after
+        // Entry sending works after
         alice.send(
                 recipientUserIds = listOf(bob.userId!!),
                 modelKey = "story",
                 entryId = "story_${System.currentTimeMillis()}",
                 payload = org.json.JSONObject(mapOf("content" to "after reconnect")).toString().toByteArray(),
             )
-        val msg2 = bob.waitForType("MODEL_SYNC", 15_000)
-        val data = JSONObject(String(msg2.raw!!.modelSync.data.toByteArray()))
+        val msg2 = bob.waitForType("APP_ENTRY", 15_000)
+        val data = JSONObject(String(msg2.raw!!.appEntry.data.toByteArray()))
         assertEquals("after reconnect", data.getString("content"))
 
         alice.disconnect()

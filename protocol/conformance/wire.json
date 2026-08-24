@@ -1,10 +1,10 @@
 {
   "version": 1,
   "kind": "wire",
-  "description": "Client wire mapping + round-trip conformance. Pins the ClientMessage payload arm to app type, SignalKind mappings, and value-preserving ModelSync round trips. Byte-canonicity is intentionally not required; see docs/NATIVE_CONTRACT.md section 3.",
+  "description": "Client wire mapping + round-trip conformance. Pins the ClientMessage payload arm to app type, SignalKind mappings, and value-preserving AppEntry round trips. Byte-canonicity is intentionally not required; see docs/NATIVE_CONTRACT.md section 3.",
   "messageTypes": [
     { "wire": "friend_request", "app": "FRIEND_REQUEST" },
-    { "wire": "model_sync", "app": "MODEL_SYNC" },
+    { "wire": "app_entry", "app": "APP_ENTRY" },
     { "wire": "model_signal", "app": "MODEL_SIGNAL" }
   ],
   "signalKinds": [
@@ -13,8 +13,8 @@
   ],
   "roundTrip": [
     {
-      "name": "ModelSync round-trips preserving model, id, timestamp, and data",
-      "modelSync": {
+      "name": "AppEntry round-trips preserving model, id, timestamp, and data",
+      "appEntry": {
         "model": "story",
         "id": "story_1706389200_abc",
         "timestamp": 1706389200000,
@@ -22,8 +22,8 @@
       }
     },
     {
-      "name": "ModelSync data round-trips by VALUE regardless of key order (not bytes)",
-      "modelSync": {
+      "name": "AppEntry data round-trips by VALUE regardless of key order (not bytes)",
+      "appEntry": {
         "model": "pix",
         "id": "pix_1706389200_def",
         "timestamp": 1706389200001,

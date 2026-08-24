@@ -261,7 +261,7 @@ The client content is a
 [`ClientMessage`](../protocol/obscura/client/v1/client.proto). This
 section pins two things about it: the **wire ↔ app-facing-form mappings** (the message
 kind and the two content enums (`EncryptedMessage.Type` is transport, not content)) and **round-trip preservation** of a
-`ModelSync`.
+`AppEntry`.
 
 ### 3.1 Message kind and enum mappings
 
@@ -269,13 +269,13 @@ The message kind is the `ClientMessage.payload` **oneof**: exactly one arm is
 set, and *which* arm is set is the message type — there is no separate `Type`
 enum to keep in sync (a kind/content mismatch is unrepresentable). The app-facing
 type string is the oneof field name upper-snake-cased (`friend_request` →
-`"FRIEND_REQUEST"`, `model_sync` → `"MODEL_SYNC"`).
+`"FRIEND_REQUEST"`, `app_entry` → `"APP_ENTRY"`).
 
 The app never sees the `SIGNAL_KIND_` wire prefix. A kit MUST map:
 
 | Wire form | App-facing form | Rule |
 |---|---|---|
-| `ClientMessage.payload` arm e.g. `model_sync` | `"MODEL_SYNC"` | oneof field name, upper-snake |
+| `ClientMessage.payload` arm e.g. `app_entry` | `"APP_ENTRY"` | oneof field name, upper-snake |
 | `SignalKind` e.g. `SIGNAL_KIND_TYPING` | `"typing"` | mapped name (see table) |
 
 An unset payload maps to `""` (ignored). `*_UNSPECIFIED` (and any unrecognized
@@ -284,7 +284,7 @@ kit (a `WireCodec`), never duplicated, so they cannot drift within a kit.
 
 ### 3.2 Round-trip
 
-`encode(ModelSync) → decode` MUST preserve `model`, `id`, `timestamp`, and
+`encode(AppEntry) → decode` MUST preserve `model`, `id`, `timestamp`, and
 the `data` **value**. `data` is model-defined JSON carried in a proto `bytes`
 field; equality is by parsed value, so key order is irrelevant.
 

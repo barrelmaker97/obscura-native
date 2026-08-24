@@ -1,4 +1,4 @@
-package com.obscura.kit.stores
+package com.obscura.kit.wire
 
 import obscura.client.v1.Client.ClientMessage.PayloadCase
 import org.junit.jupiter.api.Assertions.*
@@ -12,21 +12,21 @@ import org.junit.jupiter.api.Test
  * the table itself is worth pinning, and the exhaustiveness test below is the one that matters most:
  * a new arm added to `client.proto` must not be able to slip through unclassified.
  */
-class PayloadClassTest {
+class PayloadDispositionTest {
 
     /**
      * The expected class of every arm, written out. Also the cross-kit contract: `ObscuraKit-swift`'s
-     * `PayloadClassTests.testEveryArmHasTheSameClassAsTheKotlinKit` asserts the same table. The kits
+     * `PayloadDispositionTests.testEveryArmHasTheSameClassAsTheKotlinKit` asserts the same table. The kits
      * may differ in how they store a row; they may not differ in whether an arm is stored at all.
      */
     private val expected = mapOf(
-        PayloadCase.MODEL_SYNC to PayloadClass.INBOXED,
-        PayloadCase.FRIEND_REQUEST to PayloadClass.KIT_INTERNAL,
-        PayloadCase.FRIEND_RESPONSE to PayloadClass.KIT_INTERNAL,
-        PayloadCase.DEVICE_ANNOUNCE to PayloadClass.KIT_INTERNAL,
-        PayloadCase.DEVICE_LINK_APPROVAL to PayloadClass.KIT_INTERNAL,
-        PayloadCase.SESSION_RESET to PayloadClass.KIT_INTERNAL,
-        PayloadCase.MODEL_SIGNAL to PayloadClass.DROPPABLE,
+        PayloadCase.APP_ENTRY to PayloadDisposition.INBOXED,
+        PayloadCase.FRIEND_REQUEST to PayloadDisposition.KIT_INTERNAL,
+        PayloadCase.FRIEND_RESPONSE to PayloadDisposition.KIT_INTERNAL,
+        PayloadCase.DEVICE_ANNOUNCE to PayloadDisposition.KIT_INTERNAL,
+        PayloadCase.DEVICE_LINK_APPROVAL to PayloadDisposition.KIT_INTERNAL,
+        PayloadCase.SESSION_RESET to PayloadDisposition.KIT_INTERNAL,
+        PayloadCase.MODEL_SIGNAL to PayloadDisposition.DROPPABLE,
     )
 
     /**
@@ -48,7 +48,7 @@ class PayloadClassTest {
         assertTrue(stale.isEmpty(), "expectation(s) naming an arm that no longer exists: $stale")
 
         armsInProto.forEach { arm ->
-            assertEquals(expected[arm], classify(arm), "$arm is classified differently than expected")
+            assertEquals(expected[arm], payloadDisposition(arm), "$arm is classified differently than expected")
         }
     }
 
@@ -61,12 +61,12 @@ class PayloadClassTest {
      */
     @Test
     fun `an unknown arm is inboxed rather than left unacked`() {
-        assertEquals(PayloadClass.INBOXED, classify(PayloadCase.PAYLOAD_NOT_SET))
+        assertEquals(PayloadDisposition.INBOXED, payloadDisposition(PayloadCase.PAYLOAD_NOT_SET))
     }
 
     @Test
     fun `model sync is the app's data path`() {
-        assertEquals(PayloadClass.INBOXED, classify(PayloadCase.MODEL_SYNC))
+        assertEquals(PayloadDisposition.INBOXED, payloadDisposition(PayloadCase.APP_ENTRY))
     }
 
     /**
@@ -75,7 +75,7 @@ class PayloadClassTest {
      */
     @Test
     fun `typing indicators are the only droppable arm`() {
-        val droppable = PayloadCase.entries.filter { classify(it) == PayloadClass.DROPPABLE }
+        val droppable = PayloadCase.entries.filter { payloadDisposition(it) == PayloadDisposition.DROPPABLE }
 
         assertEquals(listOf(PayloadCase.MODEL_SIGNAL), droppable)
     }
@@ -88,7 +88,7 @@ class PayloadClassTest {
             PayloadCase.DEVICE_ANNOUNCE, PayloadCase.DEVICE_LINK_APPROVAL,
             PayloadCase.SESSION_RESET,
         ).forEach {
-            assertEquals(PayloadClass.KIT_INTERNAL, classify(it), "$it mutates kit-owned state")
+            assertEquals(PayloadDisposition.KIT_INTERNAL, payloadDisposition(it), "$it mutates kit-owned state")
         }
     }
 }

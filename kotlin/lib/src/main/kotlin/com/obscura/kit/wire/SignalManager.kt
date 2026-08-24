@@ -8,16 +8,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/**
- * ECS Signal Manager — ephemeral signals attached to models.
- *
- * Signals are NOT persisted, NOT CRDT-merged. They live in memory,
- * auto-expire after 3 seconds, and emit to reactive observers.
- *
- * Used for: typing indicators, read receipts, online status.
- *
- * Wire format: MODEL_SIGNAL (type 31) in ClientMessage.
- */
+/** In-memory, auto-expiring typing state carried by `MODEL_SIGNAL`. */
 class SignalManager {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

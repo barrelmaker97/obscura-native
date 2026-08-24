@@ -46,10 +46,10 @@ final class MultiDeviceFanOutTests: XCTestCase {
             payload: Data("Hello both Bobs!".utf8)
         )
         let msg1 = try await bob1.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg1.type, "MODEL_SYNC")
+        XCTAssertEqual(msg1.type, "APP_ENTRY")
 
         let msg2 = try await bob2.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg2.type, "MODEL_SYNC")
+        XCTAssertEqual(msg2.type, "APP_ENTRY")
 
         let bob1Rows = try await bob1.client.inbox.peek()
         let bob2Rows = try await bob2.client.inbox.peek()

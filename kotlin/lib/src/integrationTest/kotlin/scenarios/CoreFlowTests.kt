@@ -116,7 +116,7 @@ class CoreFlowTests {
         assertEquals(ConnectionState.CONNECTED, bob.connectionState.value,
             "Bob should be CONNECTED after reconnect")
 
-        val msg = bob.waitForType("MODEL_SYNC", 20_000)
+        val msg = bob.waitForType("APP_ENTRY", 20_000)
         assertEquals("You were offline!", msg.content())
         assertEquals(alice.userId, msg.sourceUserId)
         delay(300)

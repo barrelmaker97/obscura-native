@@ -2,9 +2,9 @@ import Foundation
 import LibSignalClient
 import SwiftProtobuf
 
-/// MessengerActor — encrypt, decrypt, queue, flush messages.
+/// Messenger — encrypt, decrypt, queue, flush messages.
 /// Mirrors src/v2/lib/messenger.js
-public actor MessengerActor {
+public actor Messenger {
     private let api: APIClient
     private let identityStore: IdentityKeyStore
     private let preKeyStore: PreKeyStore
@@ -68,7 +68,7 @@ public actor MessengerActor {
     /// deviceId = constant. A ProtocolAddress is a purely LOCAL store key that is never
     /// transmitted. If send and receive ever built different addresses for the same device the
     /// bidirectional session would split — this function is why they cannot. (Mirrors Kotlin
-    /// MessengerDomain.addressFor.)
+    /// Messenger.addressFor.)
     static func addressFor(_ deviceUuid: String) throws -> ProtocolAddress {
         try ProtocolAddress(name: deviceUuid, deviceId: addrDeviceId)
     }

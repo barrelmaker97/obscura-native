@@ -84,8 +84,8 @@ Each inbox row exposes:
 | `senderUserId` | string | Server-stamped `Envelope.sender_id`; never read from app payload data. |
 | `senderDeviceId` | nullable string | Device UUID whose Signal session decrypted the message. |
 | `senderDisplayName` | nullable string | Local trusted display label when available. |
-| `modelKey` | nullable string | Declared `ModelSync.model`; null for other arms. |
-| `entryId` | nullable string | Declared `ModelSync.id`; null for other arms. |
+| `modelKey` | nullable string | Declared `AppEntry.model`; null for other arms. |
+| `entryId` | nullable string | Declared `AppEntry.id`; null for other arms. |
 | `sentAt` | nullable integer | Declared timestamp, clamped per `NATIVE_CONTRACT.md` §2.4. |
 | `payload` | bytes | Opaque serialized payload bytes. |
 
@@ -175,7 +175,7 @@ attribution before applying it. Payload fields never override either source.
 
 | Payload arm | Kotlin | Swift | Notes |
 |---|---|---|---|
-| `MODEL_SYNC` | inboxed | inboxed | Primary app payload. |
+| `APP_ENTRY` | inboxed | inboxed | Primary app payload. |
 | `FRIEND_REQUEST` | kit-internal | kit-internal | Friendship bootstrap. |
 | `FRIEND_RESPONSE` | kit-internal | kit-internal | Friendship bootstrap. |
 | `DEVICE_ANNOUNCE` | kit-internal | kit-internal | Linked-device state. |
@@ -313,7 +313,7 @@ not:
 ### 8.2 Merge
 
 The app selects a merge rule from its local model configuration when applying
-each `MODEL_SYNC`. The normative rules live in
+each `APP_ENTRY`. The normative rules live in
 [`DOMAIN_CONTRACT.md`](https://github.com/rhelsing/obscura-pix/blob/main/docs/DOMAIN_CONTRACT.md):
 
 - `APPEND`: first write for an entry ID wins; later repeats are idempotent.

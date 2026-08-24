@@ -5,7 +5,7 @@ import java.nio.ByteBuffer
 import java.util.*
 
 /**
- * Shared UUID ↔ ByteString codec used by MessengerDomain.
+ * Shared UUID ↔ ByteString codec used by Messenger.
  */
 object UuidCodec {
 

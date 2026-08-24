@@ -110,16 +110,16 @@ def check_wire(rep: Report, doc: dict) -> None:
             if not isinstance(rt, dict):
                 rep.err(w, "must be an object")
                 continue
-            rep.only_keys(w, rt, {"name", "modelSync"})
+            rep.only_keys(w, rt, {"name", "appEntry"})
             rep.is_str(w, rt, "name")
-            if rep.is_dict(w, rt, "modelSync"):
-                ms = rt["modelSync"]
-                rep.only_keys(w + " modelSync", ms, {"model", "id", "timestamp", "data"})
-                rep.is_str(w + " modelSync", ms, "model")
-                rep.is_str(w + " modelSync", ms, "id")
-                rep.is_dict(w + " modelSync", ms, "data")
+            if rep.is_dict(w, rt, "appEntry"):
+                ms = rt["appEntry"]
+                rep.only_keys(w + " appEntry", ms, {"model", "id", "timestamp", "data"})
+                rep.is_str(w + " appEntry", ms, "model")
+                rep.is_str(w + " appEntry", ms, "id")
+                rep.is_dict(w + " appEntry", ms, "data")
                 if not isinstance(ms.get("timestamp"), (int, float)) or isinstance(ms.get("timestamp"), bool):
-                    rep.err(w + " modelSync", f"'timestamp' must be a number, got {ms.get('timestamp')!r}")
+                    rep.err(w + " appEntry", f"'timestamp' must be a number, got {ms.get('timestamp')!r}")
 
 
 CHECKERS = {

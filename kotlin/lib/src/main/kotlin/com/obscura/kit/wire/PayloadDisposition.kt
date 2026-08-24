@@ -1,4 +1,4 @@
-package com.obscura.kit.stores
+package com.obscura.kit.wire
 
 import obscura.client.v1.Client.ClientMessage.PayloadCase
 
@@ -9,7 +9,7 @@ import obscura.client.v1.Client.ClientMessage.PayloadCase
  * rather than aspirational**. "Never ack before persisting" is not a rule the code can follow until
  * something says, per arm, *what persisting means for this one*.
  */
-internal enum class PayloadClass {
+internal enum class PayloadDisposition {
     /** Application content. Goes in the inbox; the app drains it. Ack only after the row commits. */
     INBOXED,
 
@@ -33,21 +33,21 @@ internal enum class PayloadClass {
  *
  * Refusing to ack is reserved for transient local failures that can succeed on a later attempt.
  */
-internal fun classify(arm: PayloadCase): PayloadClass = when (arm) {
+internal fun payloadDisposition(arm: PayloadCase): PayloadDisposition = when (arm) {
     // The app's entire data path.
-    PayloadCase.MODEL_SYNC -> PayloadClass.INBOXED
+    PayloadCase.APP_ENTRY -> PayloadDisposition.INBOXED
 
     // Kit-owned state, all with live handlers in ObscuraClient.routeMessage.
     PayloadCase.FRIEND_REQUEST,
     PayloadCase.FRIEND_RESPONSE,
     PayloadCase.DEVICE_ANNOUNCE,
     PayloadCase.DEVICE_LINK_APPROVAL,
-    PayloadCase.SESSION_RESET -> PayloadClass.KIT_INTERNAL
+    PayloadCase.SESSION_RESET -> PayloadDisposition.KIT_INTERNAL
 
     // Typing indicators. client.proto says "in-memory only", and §4 permits acking these without
     // persistence — the ONLY class for which that is allowed.
-    PayloadCase.MODEL_SIGNAL -> PayloadClass.DROPPABLE
+    PayloadCase.MODEL_SIGNAL -> PayloadDisposition.DROPPABLE
 
     // Unknown or future arm, and PAYLOAD_NOT_SET. Inbox it unparsed rather than destroy it.
-    else -> PayloadClass.INBOXED
+    else -> PayloadDisposition.INBOXED
 }

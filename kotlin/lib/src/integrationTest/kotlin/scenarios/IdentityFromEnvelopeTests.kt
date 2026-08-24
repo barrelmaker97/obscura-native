@@ -1,5 +1,6 @@
 package scenarios
 
+import com.obscura.kit.stores.FriendStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -32,13 +33,13 @@ class IdentityFromEnvelopeTests {
 
         // (1) The message's USER is envelope.sender_id — server-stamped as Alice's real userId and
         // authenticated by the Signal session that decrypted (proven by the MAC on Alice's device).
-        assertEquals("MODEL_SYNC", msg.type)
+        assertEquals("APP_ENTRY", msg.type)
         assertEquals(alice.userId, msg.sourceUserId,
             "the message's user must be envelope.sender_id (Alice's real userId)")
         assertEquals(alice.deviceId, msg.senderDeviceId,
             "senderDeviceId must be Alice's real device UUID (proven by the session that decrypted)")
 
-        // (2) The DISPLAY NAME is NOT on a MODEL_SYNC payload — it is empty here. The only
+        // (2) The DISPLAY NAME is NOT on a APP_ENTRY payload — it is empty here. The only
         // place Bob has Alice's name is his FRIEND GRAPH, keyed on the envelope's user id.
         assertEquals("", msg.username,
             "application payloads carry no display name; the name must come from the graph")
@@ -69,8 +70,10 @@ class IdentityFromEnvelopeTests {
         assertEquals(alice.username, req.username,
             "the friend request's display name is the FriendRequest.username payload bootstrap")
 
-        kotlinx.coroutines.delay(500) // let the pendingRequests StateFlow refresh after persist
-        val pending = bob.pendingRequests.value.firstOrNull { it.userId == alice.userId }
+        kotlinx.coroutines.delay(500) // let the friend-list StateFlow refresh after persist
+        val pending = bob.friendList.value.firstOrNull {
+            it.userId == alice.userId && it.status == FriendStatus.PENDING_RECEIVED
+        }
         assertNotNull(pending, "Bob's pending requests must list Alice under her envelope user id")
         assertEquals(alice.username, pending!!.username,
             "the pending request's display name is bootstrapped from the payload username")

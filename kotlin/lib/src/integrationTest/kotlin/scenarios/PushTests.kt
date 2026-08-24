@@ -71,7 +71,7 @@ class PushTests {
         val processed = bob.processPendingMessages(timeoutMs = 10_000)
         assertEquals(3, processed, "Should have processed exactly 3 opaque envelopes")
         val queuedModels = List(3) {
-            bob.incomingMessages.tryReceive().getOrNull()?.raw?.modelSync?.model
+            bob.incomingMessages.tryReceive().getOrNull()?.raw?.appEntry?.model
         }
         assertEquals(
             listOf("model-a", "model-a", "model-b"),

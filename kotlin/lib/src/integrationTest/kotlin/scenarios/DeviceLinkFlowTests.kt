@@ -90,10 +90,10 @@ class DeviceLinkFlowTests {
         // Carol sends — both devices should receive
         sendAndVerify(carol, device1, "Hello both devices")
 
-        val msg1 = device1.waitForType("MODEL_SYNC")
+        val msg1 = device1.waitForType("APP_ENTRY")
         assertEquals("Hello both devices", msg1.content())
 
-        val msg2 = device2.waitForType("MODEL_SYNC")
+        val msg2 = device2.waitForType("APP_ENTRY")
         assertEquals("Hello both devices", msg2.content())
 
         device1.disconnect(); device2.disconnect(); carol.disconnect()

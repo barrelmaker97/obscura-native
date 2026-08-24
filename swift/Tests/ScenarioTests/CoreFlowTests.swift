@@ -60,7 +60,7 @@ final class CoreFlowTests: XCTestCase {
             payload: firstPayload
         )
         let firstWake = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(firstWake.type, "MODEL_SYNC")
+        XCTAssertEqual(firstWake.type, "APP_ENTRY")
 
         let firstRows = try await bob.inbox.peek()
         let firstRow = try XCTUnwrap(firstRows.first { $0.entryId == "entry-online" })
@@ -114,7 +114,7 @@ final class CoreFlowTests: XCTestCase {
         )
         try await bob2.connect()
         let queuedWake = try await bob2.waitForMessage(timeout: 15)
-        XCTAssertEqual(queuedWake.type, "MODEL_SYNC")
+        XCTAssertEqual(queuedWake.type, "APP_ENTRY")
         let queuedRows = try await bob2.inbox.peek()
         XCTAssertTrue(queuedRows.contains { $0.entryId == "entry-queued" })
 

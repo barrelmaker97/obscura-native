@@ -10,6 +10,7 @@ import com.obscura.kit.crypto.toBase64
 import com.obscura.kit.db.ObscuraDatabase
 import com.obscura.kit.managers.*
 import com.obscura.kit.managers.SignalKeyUtils.toApiJson
+import com.obscura.kit.messaging.Messenger
 import com.obscura.kit.network.APIClient
 import com.obscura.kit.network.GatewayConnection
 import com.obscura.kit.network.GatewayState
@@ -17,15 +18,15 @@ import com.obscura.kit.network.LoginResult
 import com.obscura.kit.network.UploadDeviceKeysRequest
 import com.obscura.kit.wire.SignalManager
 import com.obscura.kit.wire.WireCodec
+import com.obscura.kit.wire.PayloadDisposition
+import com.obscura.kit.wire.payloadDisposition
 import com.obscura.kit.stores.*
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -41,12 +42,12 @@ import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-class ReceivedMessage internal constructor(
+class MessageWakeEvent internal constructor(
     val type: String,
     internal val username: String = "",
     internal val sourceUserId: String = "",
     internal val senderDeviceId: String? = null,
-    /** For MODEL_SYNC messages: the opaque model key; null for non-sync types. */
+    /** For APP_ENTRY messages: the opaque model key; null for non-sync types. */
     val model: String? = null,
     /** Test-only access to the decoded wire message. Applications drain the durable inbox. */
     internal val raw: ClientMessage? = null,
@@ -91,13 +92,6 @@ class ObscuraClient(
     private val _friendList = MutableStateFlow<List<FriendData>>(emptyList())
     val friendList: StateFlow<List<FriendData>> = _friendList
 
-    private val _pendingRequests = MutableStateFlow<List<FriendData>>(emptyList())
-    val pendingRequests: StateFlow<List<FriendData>> = _pendingRequests
-
-    // Optional aggregate stream; incomingMessages remains the app's receive wake-up channel.
-    private val _typedEvents = MutableSharedFlow<ObscuraEvent>(extraBufferCapacity = 64)
-    val typedEvents: SharedFlow<ObscuraEvent> = _typedEvents
-
     private val driver = externalDriver ?: if (config.databasePath != null) {
         JdbcSqliteDriver("jdbc:sqlite:${config.databasePath}")
     } else {
@@ -109,9 +103,9 @@ class ObscuraClient(
     internal val api = APIClient(config.apiUrl)
     internal val gateway: GatewayConnection
 
-    private val friends: FriendDomain
-    internal val devices: DeviceDomain
-    internal val messenger: MessengerDomain
+    private val friends: FriendStore
+    internal val devices: DeviceStore
+    internal val messenger: Messenger
 
     /**
      * The durable inbox (`KIT_API.md` §3) — the thin kit's receive API.
@@ -119,7 +113,7 @@ class ObscuraClient(
      * Four methods: peek / consume / discard / depth. The kit writes rows before it acks; the app
      * drains them. There is no insert, because the kit is the only writer.
      */
-    val inbox: InboxDomain
+    val inbox: InboxStore
 
     /**
      * Raw storage for application entries (`KIT_API.md` §8.1) — the other half of the
@@ -137,9 +131,9 @@ class ObscuraClient(
     private val authManager: AuthManager
     private val messageSender: MessageSender
     private val friendshipManager: FriendshipManager
-    private val messagingManager: MessagingManager
+    private val contentService: ContentService
     private val deviceManager: DeviceManager
-    private val clientSyncManager: ClientSyncManager
+    private val sessionResetService: SessionResetService
 
     // Identity — delegate to session
     var userId: String?
@@ -165,11 +159,11 @@ class ObscuraClient(
     /**
      * The kit's inbound-message stream and the intended public consumer API:
      * exactly one consumer should drain this channel (e.g. the app's
-     * process-scoped session), classify each [ReceivedMessage], and fan out to
+     * process-scoped session), classify each [MessageWakeEvent], and fan out to
      * UI/notifications. Buffered so messages that arrive before a consumer
      * attaches (e.g. an FCM cold-start) are not dropped.
      */
-    val incomingMessages = Channel<ReceivedMessage>(capacity = 1000)
+    val incomingMessages = Channel<MessageWakeEvent>(capacity = 1000)
 
     /** Debug log — ring buffer of last 200 events. Thread-safe. */
     val debugLog = ConcurrentLinkedDeque<String>()
@@ -199,10 +193,10 @@ class ObscuraClient(
         signalStore.onIdentityChanged = { address, _, _ ->
             logger.identityChanged(address)
         }
-        friends = FriendDomain(db)
-        devices = DeviceDomain(db)
-        messenger = MessengerDomain(signalStore, api)
-        inbox = InboxDomain(db)
+        friends = FriendStore(db)
+        devices = DeviceStore(db)
+        messenger = Messenger(signalStore, api)
+        inbox = InboxStore(db)
         entries = EntryStore(db)
         // A discard is data loss the app chose deliberately, and §3.3 rule 5 requires it be logged
         // as a security-relevant event rather than being the quiet path.
@@ -260,7 +254,7 @@ class ObscuraClient(
                 // readable with no key at all. Note this destroys the whole table rather than
                 // selecting rows: that is what keeps it a security operation and not the eviction
                 // policy §3.4 refuses to add.
-                // Keep the security carve-out behind InboxDomain rather than exposing its query.
+                // Keep the security carve-out behind InboxStore rather than exposing its query.
                 inbox.wipe()
             },
             onSessionChanged = { persistSession() }
@@ -291,9 +285,9 @@ class ObscuraClient(
 
         friendshipManager = FriendshipManager(ctx = ctx)
 
-        messagingManager = MessagingManager(ctx = ctx)
+        contentService = ContentService(ctx = ctx)
 
-        clientSyncManager = ClientSyncManager(ctx = ctx)
+        sessionResetService = SessionResetService(ctx = ctx)
 
         deviceManager = DeviceManager(
             ctx = ctx,
@@ -313,13 +307,6 @@ class ObscuraClient(
                 .collect { _friendList.value = it }
         }
 
-        scope.launch {
-            db.friendQueries.selectByStatus(FriendStatus.PENDING_RECEIVED.value)
-                .asFlow()
-                .mapToList(Dispatchers.IO)
-                .map { rows -> rows.map { it.toObservedFriendData() } }
-                .collect { _pendingRequests.value = it }
-        }
     }
 
     suspend fun register(username: String, password: String) {
@@ -450,7 +437,6 @@ class ObscuraClient(
     suspend fun fullLogout() {
         log("FULL_LOGOUT start")
         envelopeJob?.cancel()
-        eventForwardingJob?.cancel()
         authManager.tokenRefreshJob?.cancel()
         preKeyStatusJob?.cancel()
         // SignalManager's own scope outlives this object otherwise: every `receive` launches a
@@ -461,36 +447,9 @@ class ObscuraClient(
         try { authManager.logout() } catch (e: Exception) { log("logout during fullLogout failed: ${e.message}") }
         _authState.value = AuthState.LOGGED_OUT
         _friendList.value = emptyList()
-        _pendingRequests.value = emptyList()
         db.attachmentCacheQueries.deleteAll()
         sessionStorage.clear()
         log("FULL_LOGOUT complete")
-    }
-
-    /** Start forwarding StateFlows to the optional typedEvents aggregate. */
-    private var eventForwardingJob: Job? = null
-    private fun startEventForwarding() {
-        eventForwardingJob?.cancel()
-        eventForwardingJob = scope.launch {
-            // Friends
-            launch {
-                friendList.collect { friends ->
-                    _typedEvents.emit(ObscuraEvent.FriendsUpdated(friends))
-                }
-            }
-            // Connection state
-            launch {
-                connectionState.collect { state ->
-                    _typedEvents.emit(ObscuraEvent.ConnectionChanged(state))
-                }
-            }
-            // Auth state
-            launch {
-                authState.collect { state ->
-                    _typedEvents.emit(ObscuraEvent.AuthChanged(state))
-                }
-            }
-        }
     }
 
     // ─── Connect / Disconnect ───────────────────────────────
@@ -515,7 +474,6 @@ class ObscuraClient(
         }
         log("CONNECT ok — websocket open")
         startEnvelopeLoop()
-        startEventForwarding()
         authManager.startTokenRefresh()
         startPreKeyStatusListener()
         persistSession() // auto-save refreshed tokens
@@ -538,7 +496,6 @@ class ObscuraClient(
         log("DISCONNECT")
         authManager.tokenRefreshJob?.cancel()
         envelopeJob?.cancel()
-        eventForwardingJob?.cancel()
         // Without this it keeps consuming gateway.preKeyStatus and calling replenishPreKeys() —
         // which POSTs /v1/devices/keys with whatever token is left, i.e. a null one after a logout.
         preKeyStatusJob?.cancel()
@@ -731,7 +688,7 @@ class ObscuraClient(
                 }
 
                 // `Envelope.id` is now the inbox's DEDUPE KEY, so it gets the same length check
-                // `sender_id` above and `sender_device_id` in MessengerDomain already get — and for
+                // `sender_id` above and `sender_device_id` in Messenger already get — and for
                 // the same reason: SPEC §0.10 treats everything the relay stamps as untrusted.
                 //
                 // Without this, `UuidCodec.bytesToUuid` returns the NIL UUID for anything shorter
@@ -789,14 +746,14 @@ class ObscuraClient(
                         ClientMessage.PayloadCase.FRIEND_RESPONSE -> msg.friendResponse.username
                         else -> ""
                     }
-                    val received = ReceivedMessage(
+                    val received = MessageWakeEvent(
                         type = WireCodec.decodeType(msg.payloadCase),
                         username = username,
                         sourceUserId = sourceUserId,
                         senderDeviceId = decrypted.senderDeviceId,
                         model = msg.takeIf {
-                            it.payloadCase == ClientMessage.PayloadCase.MODEL_SYNC
-                        }?.modelSync?.model?.takeIf(String::isNotBlank),
+                            it.payloadCase == ClientMessage.PayloadCase.APP_ENTRY
+                        }?.appEntry?.model?.takeIf(String::isNotBlank),
                         raw = msg
                     )
 
@@ -883,10 +840,10 @@ class ObscuraClient(
         senderDeviceId: String?,
         envelopeId: String,
     ): Boolean {
-        when (classify(msg.payloadCase)) {
-            PayloadClass.INBOXED -> return inboxMessage(msg, sourceUserId, senderDeviceId, envelopeId)
+        when (payloadDisposition(msg.payloadCase)) {
+            PayloadDisposition.INBOXED -> return inboxMessage(msg, sourceUserId, senderDeviceId, envelopeId)
 
-            PayloadClass.DROPPABLE, PayloadClass.KIT_INTERNAL -> when (msg.payloadCase) {
+            PayloadDisposition.DROPPABLE, PayloadDisposition.KIT_INTERNAL -> when (msg.payloadCase) {
                 ClientMessage.PayloadCase.FRIEND_REQUEST -> handleFriendRequest(msg, sourceUserId)
                 ClientMessage.PayloadCase.FRIEND_RESPONSE -> handleFriendResponse(msg, sourceUserId)
                 ClientMessage.PayloadCase.DEVICE_ANNOUNCE -> handleDeviceAnnounce(msg, sourceUserId)
@@ -916,8 +873,8 @@ class ObscuraClient(
         senderDeviceId: String?,
         envelopeId: String,
     ): Boolean {
-        val isModelSync = msg.payloadCase == ClientMessage.PayloadCase.MODEL_SYNC
-        val sync = msg.modelSync
+        val isAppEntry = msg.payloadCase == ClientMessage.PayloadCase.APP_ENTRY
+        val sync = msg.appEntry
 
         val inserted = inbox.put(
             InboxRecord(
@@ -938,13 +895,13 @@ class ObscuraClient(
                 // sender, never from the payload. Null when they are not a friend — §7 covers what
                 // the app should show then, and it is not a peer-chosen string.
                 senderDisplayName = friends.get(sourceUserId)?.username,
-                // ModelSync-derived, so null for an unknown arm — there is nothing to derive from.
-                modelKey = if (isModelSync) sync.model else null,
-                entryId = if (isModelSync) sync.id else null,
-                sentAt = if (isModelSync) clampFutureTimestamp(sync.timestamp) else null,
+                // AppEntry-derived, so null for an unknown arm — there is nothing to derive from.
+                modelKey = if (isAppEntry) sync.model else null,
+                entryId = if (isAppEntry) sync.id else null,
+                sentAt = if (isAppEntry) clampFutureTimestamp(sync.timestamp) else null,
                 // Opaque bytes. For an unknown arm this is the whole serialized message, because the
                 // kit cannot know which sub-field would have been the payload.
-                payload = if (isModelSync) sync.data.toByteArray() else msg.toByteArray(),
+                payload = if (isAppEntry) sync.data.toByteArray() else msg.toByteArray(),
             )
         )
 
@@ -956,13 +913,6 @@ class ObscuraClient(
             return false
         }
 
-        // The typed event stream's only app-data event. It deliberately carries NO payload: the
-        // bytes are in the inbox and the app drains them, so an event carrying data would be a
-        // second delivery path competing with the store (KIT_API §2). Emitting it here — after the
-        // row has committed — keeps it a wake-up about something already durable.
-        if (isModelSync) {
-            _typedEvents.tryEmit(ObscuraEvent.MessageReceived(sync.model))
-        }
         return true
     }
 
@@ -974,7 +924,7 @@ class ObscuraClient(
      */
     internal fun clampFutureTimestamp(sentAt: Long): Long {
         val cap = System.currentTimeMillis() + 60_000L
-        // `ModelSync.timestamp` is proto3 `uint64`, which protobuf-java surfaces as a SIGNED Long —
+        // `AppEntry.timestamp` is proto3 `uint64`, which protobuf-java surfaces as a SIGNED Long —
         // so a peer sending >= 2^63 arrives here NEGATIVE and sails under any `minOf` cap. Swift
         // does the same comparison in UInt64 space and correctly yields the cap, so the unguarded
         // version stored roughly -9.2e18 on Android and now+60s on iOS for identical wire bytes.
@@ -1201,7 +1151,7 @@ class ObscuraClient(
         entryId: String,
         sentAt: Long = System.currentTimeMillis(),
         payload: ByteArray,
-    ) = messagingManager.sendEntry(recipientUserIds, modelKey, entryId, sentAt, payload)
+    ) = contentService.sendEntry(recipientUserIds, modelKey, entryId, sentAt, payload)
 
     // ── Ephemeral signals (typing, read receipts) ────────────────────────────────────────────
     //
@@ -1288,17 +1238,15 @@ class ObscuraClient(
         }
     }
 
-    suspend fun uploadAttachment(data: ByteArray): Pair<String, Long> = messagingManager.uploadAttachment(data)
-    suspend fun downloadAttachment(id: String): ByteArray = messagingManager.downloadAttachment(id)
+    suspend fun uploadAttachment(data: ByteArray): Pair<String, Long> = contentService.uploadAttachment(data)
+    suspend fun downloadAttachment(id: String): ByteArray = contentService.downloadAttachment(id)
     suspend fun downloadDecryptedAttachment(id: String, contentKey: ByteArray, nonce: ByteArray, expectedHash: ByteArray? = null): ByteArray =
-        messagingManager.downloadDecryptedAttachment(id, contentKey, nonce, expectedHash)
+        contentService.downloadDecryptedAttachment(id, contentKey, nonce, expectedHash)
 
     suspend fun befriend(targetUserId: String, targetUsername: String) = friendshipManager.befriend(targetUserId, targetUsername)
     suspend fun acceptFriend(targetUserId: String, targetUsername: String) = friendshipManager.acceptFriend(targetUserId, targetUsername)
 
     suspend fun announceDevices() = deviceManager.announceDevices()
-    suspend fun announceDeviceRevocation(friendUsername: String, remainingDeviceIds: List<String>) =
-        deviceManager.announceDeviceRevocation(friendUsername, remainingDeviceIds)
     /**
      * Generate a link code for this device. Display as QR code or copyable text.
      * The existing device scans this and calls validateAndApproveLink().
@@ -1329,9 +1277,10 @@ class ObscuraClient(
         deviceManager.approveLink(newDeviceId, challengeResponse)
     suspend fun takeoverDevice() = deviceManager.takeoverDevice()
 
-    suspend fun resetSessionWith(targetUserId: String, reason: String = "manual") =
-        clientSyncManager.resetSessionWith(targetUserId, reason)
-    suspend fun resetAllSessions(reason: String = "manual") = clientSyncManager.resetAllSessions(reason)
+    internal suspend fun resetSessionWith(targetUserId: String, reason: String = "manual") =
+        sessionResetService.resetSessionWith(targetUserId, reason)
+    internal suspend fun resetAllSessions(reason: String = "manual") =
+        sessionResetService.resetAllSessions(reason)
 
     companion object {
         // See [decryptFailures].
@@ -1389,15 +1338,13 @@ internal fun shouldForceReconnectAfterPush(
 }
 
 /**
- * Row-to-[FriendData] projection for the [ObscuraClient.friendList] / [ObscuraClient.pendingRequests]
- * StateFlows.
+ * Row-to-[FriendData] projection for [ObscuraClient.friendList].
  *
- * Distinct from [FriendDomain]'s mapping in exactly one respect: it drops `recoveryPublicKey`.
+ * Distinct from [FriendStore]'s mapping in exactly one respect: it drops `recoveryPublicKey`.
  * That is not an oversight. [FriendData] is a data class, so its generated `equals` compares
  * `ByteArray` by REFERENCE, and SQLDelight hands back a fresh array on every read — carrying the
  * key here would make each projection unequal to the last, defeating StateFlow conflation and
- * re-emitting `FriendsUpdated` on every write to the friend table. Nothing observing these flows
- * reads the key.
+ * re-emitting an unchanged friend list on every write. Nothing observing this flow reads the key.
  */
 private fun Friend.toObservedFriendData(): FriendData {
     return FriendData(

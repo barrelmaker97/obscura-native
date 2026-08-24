@@ -56,9 +56,9 @@ internal fun parseFriendDevices(json: String): List<FriendDeviceInfo> {
 }
 
 /**
- * FriendDomain - Confined coroutines. Manages friend state + device lists.
+ * FriendStore - Confined coroutines. Manages friend state + device lists.
  */
-class FriendDomain internal constructor(private val db: ObscuraDatabase) {
+class FriendStore internal constructor(private val db: ObscuraDatabase) {
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
 
     suspend fun add(userId: String, username: String, status: FriendStatus, devices: List<FriendDeviceInfo> = emptyList()) =

@@ -59,7 +59,7 @@ final class DeviceTakeoverTests: XCTestCase {
             payload: Data("Post-takeover entry".utf8)
         )
         let msg = try await bob.waitForMessage(timeout: 15)
-        XCTAssertEqual(msg.type, "MODEL_SYNC")
+        XCTAssertEqual(msg.type, "APP_ENTRY")
         let rows = try await bob.client.inbox.peek()
         XCTAssertTrue(rows.contains { $0.entryId == "post-takeover" })
 

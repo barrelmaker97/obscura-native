@@ -5,7 +5,7 @@ import obscura.client.v1.Client.ClientMessage
 /**
  * Send application entries. Upload/download attachments.
  */
-internal class MessagingManager(
+internal class ContentService(
     private val ctx: ClientContext
 ) {
     private val session get() = ctx.session
@@ -47,7 +47,7 @@ internal class MessagingManager(
     ) {
         val msg = ClientMessage.newBuilder()
             .setTimestamp(System.currentTimeMillis())
-            .setModelSync(obscura.client.v1.modelSync {
+            .setAppEntry(obscura.client.v1.appEntry {
                 this.model = modelKey
                 this.id = entryId
                 timestamp = sentAt

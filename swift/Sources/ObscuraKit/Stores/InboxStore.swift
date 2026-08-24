@@ -3,8 +3,8 @@ import GRDB
 
 /// One drained inbox row, as the app sees it (`KIT_API.md` §3.1).
 ///
-/// `payload` is opaque bytes the kit never parsed. The `ModelSync`-derived fields are `nil` for every
-/// other kind, including an unknown arm — there is no `ModelSync` to derive them from.
+/// `payload` is opaque bytes the kit never parsed. The `AppEntry`-derived fields are `nil` for every
+/// other kind, including an unknown arm — there is no `AppEntry` to derive them from.
 public struct InboxRecord: Sendable, Equatable {
     public let id: Int64
     public let envelopeId: String
@@ -155,7 +155,7 @@ public actor InboxStore {
                     entryId: row["entry_id"],
                     // Saturating, not `UInt64(_:)`: that TRAPS on a negative value, which would be a
                     // hard crash in `peek` — and a negative `sent_at` is reachable, because
-                    // `ModelSync.timestamp` is proto3 `uint64` and Kotlin's protobuf surfaces it as
+                    // `AppEntry.timestamp` is proto3 `uint64` and Kotlin's protobuf surfaces it as
                     // a signed Long. A row written by a peer kit must never be able to crash a drain.
                     sentAt: (row["sent_at"] as Int64?).map { $0 < 0 ? 0 : UInt64($0) },
                     payload: row["payload"]

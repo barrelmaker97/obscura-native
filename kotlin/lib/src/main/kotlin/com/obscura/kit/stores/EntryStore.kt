@@ -22,7 +22,7 @@ data class StoredEntry(
 /**
  * Raw storage for application entries (`KIT_API.md` §8.1).
  *
- * The other half of the thin kit's app-facing surface: `InboxDomain` is how messages arrive,
+ * The other half of the thin kit's app-facing surface: `InboxStore` is how messages arrive,
  * this is where the app keeps what it made of them. Together they are the whole data path.
  *
  * The API is `put` / `all`. `put` is a blind upsert; the app resolves merge before

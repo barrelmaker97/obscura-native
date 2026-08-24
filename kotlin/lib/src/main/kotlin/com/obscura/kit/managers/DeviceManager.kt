@@ -5,9 +5,7 @@ import com.obscura.kit.managers.SignalKeyUtils.toApiJson
 import com.obscura.kit.network.UploadDeviceKeysRequest
 import obscura.client.v1.Client.ClientMessage
 
-/**
- * Device announce, revocation, approve link, takeover.
- */
+/** Device announcements, link approval, and takeover. */
 internal class DeviceManager(
     private val ctx: ClientContext,
     private val announceDevicesCallback: suspend () -> Unit
@@ -37,26 +35,6 @@ internal class DeviceManager(
         for (friend in friends.getAccepted()) {
             messageSender.sendToAllDevices(friend.userId, msg)
         }
-    }
-
-    suspend fun announceDeviceRevocation(friendUsername: String, remainingDeviceIds: List<String>) {
-        val friendData = friends.getAccepted().find { it.username == friendUsername }
-            ?: throw com.obscura.kit.ObscuraError.NotFriends(friendUsername)
-
-        val msg = ClientMessage.newBuilder()
-            .setTimestamp(System.currentTimeMillis())
-            .setDeviceAnnounce(obscura.client.v1.deviceAnnounce {
-                for (devId in remainingDeviceIds) {
-                    devices.add(obscura.client.v1.deviceInfo {
-                        deviceUuid = devId; deviceId = devId; deviceName = "Device"
-                    })
-                }
-                timestamp = System.currentTimeMillis()
-                isRevocation = true
-                signature = com.google.protobuf.ByteString.copyFrom(ByteArray(64))
-            }).build()
-
-        messageSender.sendToAllDevices(friendData.userId, msg)
     }
 
     suspend fun approveLink(newDeviceId: String, challengeResponse: ByteArray) {

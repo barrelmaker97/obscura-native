@@ -38,7 +38,7 @@ final class MultiDeviceLinkingTests: XCTestCase {
         await rateLimitDelay()
 
         let msg = try await bob.waitForMessage(timeout: 10)
-        XCTAssertEqual(msg.type, "MODEL_SYNC")
+        XCTAssertEqual(msg.type, "APP_ENTRY")
         XCTAssertEqual(msg.sourceUserId, alice.userId!)
 
         alice.disconnectWebSocket()

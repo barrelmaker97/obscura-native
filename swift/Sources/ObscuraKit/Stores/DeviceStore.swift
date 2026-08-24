@@ -32,7 +32,7 @@ public struct OwnDevice: Codable, Sendable, Equatable {
     }
 }
 
-public actor DeviceActor {
+public actor DeviceStore {
     private let db: DatabaseQueue
 
     public nonisolated var dbQueue: DatabaseQueue { db }

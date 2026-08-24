@@ -276,7 +276,7 @@ class APIClient(private val baseUrl: String) {
      *
      * Both halves matter, and both were wrong. `Call.execute()` blocks the calling thread, and
      * `Thread.sleep` blocked it for up to 10s per retry — while every caller reached this through
-     * `MessengerDomain`, whose whole job is a `Dispatchers.Default.limitedParallelism(1)` that
+     * `Messenger`, whose whole job is a `Dispatchers.Default.limitedParallelism(1)` that
      * serialises the Signal ratchet. One rate-limited send therefore parked that single thread for
      * ~20s of sleep plus timeouts, and for that entire window NO inbound envelope was decrypted,
      * persisted or acked. `delay` frees the thread; `withContext(IO)` keeps the socket wait off it.

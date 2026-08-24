@@ -3,9 +3,9 @@ package com.obscura.kit
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.obscura.kit.crypto.RecoveryKeys
 import com.obscura.kit.db.ObscuraDatabase
-import com.obscura.kit.stores.FriendDomain
+import com.obscura.kit.stores.FriendStore
 import com.obscura.kit.stores.FriendStatus
-import com.obscura.kit.stores.InboxDomain
+import com.obscura.kit.stores.InboxStore
 import com.google.protobuf.ByteString
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -47,10 +47,10 @@ class ReceivePathTest {
         return client
     }
 
-    private fun modelSync(entryId: String, model: String = "pix", timestamp: Long = 1_700_000_000_000) =
+    private fun appEntry(entryId: String, model: String = "pix", timestamp: Long = 1_700_000_000_000) =
         ClientMessage.newBuilder()
             .setTimestamp(timestamp)
-            .setModelSync(obscura.client.v1.modelSync {
+            .setAppEntry(obscura.client.v1.appEntry {
                 this.model = model
                 id = entryId
                 this.timestamp = timestamp
@@ -82,7 +82,7 @@ class ReceivePathTest {
     /**
      * **The documented cross-kit divergence, and the branch that had no test.**
      *
-     * `ModelSync.timestamp` is proto3 `uint64`, which protobuf-java surfaces as a SIGNED Long, so a
+     * `AppEntry.timestamp` is proto3 `uint64`, which protobuf-java surfaces as a SIGNED Long, so a
      * peer sending >= 2^63 arrives here NEGATIVE and sails under any `minOf` cap. Swift compares in
      * UInt64 space and correctly yields the cap, so identical wire bytes stored roughly -9.2e18 on
      * Android and now+60s on iOS.
@@ -111,39 +111,39 @@ class ReceivePathTest {
     @Test
     fun `a redelivered envelope is stored once and reported as not-new`() = runBlocking {
         val c = newClient()
-        val msg = modelSync("entry-1")
+        val msg = appEntry("entry-1")
 
         val first = c.routeMessage(msg, peerUserId, "dev-peer", "env-1")
         val second = c.routeMessage(msg, peerUserId, "dev-peer", "env-1")
 
         assertTrue(first, "a fresh envelope must be announced to the app")
         assertFalse(second, "a redelivery must be absorbed silently — it is still acked, not notified")
-        assertEquals(1L, InboxDomain(c.db).depth())
+        assertEquals(1L, InboxStore(c.db).depth())
     }
 
     @Test
     fun `a distinct envelope carrying the same entry is a separate row`() = runBlocking {
         val c = newClient()
 
-        assertTrue(c.routeMessage(modelSync("entry-1"), peerUserId, "dev-peer", "env-1"))
-        assertTrue(c.routeMessage(modelSync("entry-1"), peerUserId, "dev-peer", "env-2"))
+        assertTrue(c.routeMessage(appEntry("entry-1"), peerUserId, "dev-peer", "env-1"))
+        assertTrue(c.routeMessage(appEntry("entry-1"), peerUserId, "dev-peer", "env-2"))
 
-        assertEquals(2L, InboxDomain(c.db).depth(),
+        assertEquals(2L, InboxStore(c.db).depth(),
             "dedupe keys on the envelope id, not on the app's entry id")
     }
 
     @Test
     fun `an inbox row records the authenticated sender, never the payload`() = runBlocking {
         val c = newClient()
-        FriendDomain(c.db).add(peerUserId, "alice", FriendStatus.ACCEPTED)
+        FriendStore(c.db).add(peerUserId, "alice", FriendStatus.ACCEPTED)
 
-        c.routeMessage(modelSync("entry-1"), peerUserId, "dev-peer", "env-1")
+        c.routeMessage(appEntry("entry-1"), peerUserId, "dev-peer", "env-1")
 
-        val row = InboxDomain(c.db).peek().single()
+        val row = InboxStore(c.db).peek().single()
         assertEquals(peerUserId, row.senderUserId)
         assertEquals("dev-peer", row.senderDeviceId)
         assertEquals("alice", row.senderDisplayName, "SPEC §0.5: the name comes from OUR friend graph")
-        assertEquals("MODEL_SYNC", row.kind)
+        assertEquals("APP_ENTRY", row.kind)
         assertEquals("pix", row.modelKey)
     }
 
@@ -181,7 +181,7 @@ class ReceivePathTest {
     @Test
     fun `an unsigned announce from a friend updates the device list`() = runBlocking {
         val c = newClient()
-        val friends = FriendDomain(c.db)
+        val friends = FriendStore(c.db)
         friends.add(peerUserId, "alice", FriendStatus.ACCEPTED)
 
         c.handleDeviceAnnounce(announce(listOf("dev-a"), isRevocation = false), peerUserId)
@@ -192,7 +192,7 @@ class ReceivePathTest {
     @Test
     fun `the first announce carrying a recovery key pins it`() = runBlocking {
         val c = newClient()
-        val friends = FriendDomain(c.db)
+        val friends = FriendStore(c.db)
         friends.add(peerUserId, "alice", FriendStatus.ACCEPTED)
 
         c.handleDeviceAnnounce(
@@ -211,7 +211,7 @@ class ReceivePathTest {
     @Test
     fun `a self-consistent announce under a different key is rejected once one is pinned`() = runBlocking {
         val c = newClient()
-        val friends = FriendDomain(c.db)
+        val friends = FriendStore(c.db)
         friends.add(peerUserId, "alice", FriendStatus.ACCEPTED)
         c.handleDeviceAnnounce(
             announce(listOf("dev-a"), isRevocation = false, signWith = phrase, offerKeyFrom = phrase),
@@ -236,7 +236,7 @@ class ReceivePathTest {
     @Test
     fun `a revocation with nothing pinned to check it against is rejected`() = runBlocking {
         val c = newClient()
-        val friends = FriendDomain(c.db)
+        val friends = FriendStore(c.db)
         friends.add(peerUserId, "alice", FriendStatus.ACCEPTED, listOf(
             com.obscura.kit.stores.FriendDeviceInfo("dev-a", "dev-a", "A"),
             com.obscura.kit.stores.FriendDeviceInfo("dev-b", "dev-b", "B"),
@@ -251,7 +251,7 @@ class ReceivePathTest {
     @Test
     fun `a revocation signed under the pinned key is applied`() = runBlocking {
         val c = newClient()
-        val friends = FriendDomain(c.db)
+        val friends = FriendStore(c.db)
         friends.add(peerUserId, "alice", FriendStatus.ACCEPTED)
         c.handleDeviceAnnounce(
             announce(listOf("dev-a", "dev-b"), isRevocation = false, signWith = phrase, offerKeyFrom = phrase),
@@ -301,7 +301,7 @@ class ReceivePathTest {
     @Test
     fun `a typing signal in the senders own two-party conversation is accepted`() = runBlocking {
         val c = newClient()
-        FriendDomain(c.db).add(peerUserId, "alice", FriendStatus.ACCEPTED)
+        FriendStore(c.db).add(peerUserId, "alice", FriendStatus.ACCEPTED)
         val conversation = "${selfUserId}_$peerUserId"
 
         c.handleModelSignal(typing(conversation), peerUserId, "dev-peer")
