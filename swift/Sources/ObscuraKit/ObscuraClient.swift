@@ -1020,7 +1020,7 @@ public class ObscuraClient {
         msg.timestamp = UInt64(Date().timeIntervalSince1970 * 1000)
 
         try await sendToAllDevices(targetUserId, msg)
-        await friends.updateStatus(targetUserId, .accepted)
+        try await friends.updateStatus(targetUserId, .accepted)
     }
 
     /// Announce the current device list to all friends.
@@ -1614,6 +1614,7 @@ public class ObscuraClient {
         await rateLimitDelay()
 
         let msgData = try msg.serializedData()
+        var queued = 0
         for bundle in bundles {
             if let excluded = excludingDeviceId, bundle.deviceId == excluded { continue }
             do {
@@ -1624,8 +1625,15 @@ public class ObscuraClient {
             }
             let targetDeviceId = bundle.deviceId
             try await messenger.queueMessage(targetDeviceId: targetDeviceId, clientMessageData: msgData, targetUserId: targetUserId)
+            queued += 1
         }
-        _ = try await messenger.flushMessages()
+        guard queued > 0 else {
+            throw ObscuraError.sendFailed("No usable devices for \(targetUserId)")
+        }
+        let result = try await messenger.flushMessages()
+        guard result.sent > 0 else {
+            throw ObscuraError.sendFailed("No submissions sent to \(targetUserId)")
+        }
     }
 
     // MARK: - Internal: Envelope Loop
@@ -1826,7 +1834,7 @@ public class ObscuraClient {
                 if let existing, existing.status == .pendingSent {
                     // Promote in place: updateStatus keeps the name WE recorded when we sent the
                     // request. The payload username is not consulted (SPEC §0.5).
-                    await friends.updateStatus(sourceUserId, .accepted)
+                    try await friends.updateStatus(sourceUserId, .accepted)
                 } else {
                     logger.log("ignoring unsolicited FRIEND_RESPONSE from \(sourceUserId) "
                         + "(local status=\(existing?.status.rawValue ?? "none"); expected pendingSent)")
