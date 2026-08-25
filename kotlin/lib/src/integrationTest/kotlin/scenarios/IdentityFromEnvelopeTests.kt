@@ -1,6 +1,6 @@
 package scenarios
 
-import com.obscura.kit.stores.FriendStatus
+import dev.barrelmaker.obscura.kit.stores.FriendStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Assumptions.assumeTrue

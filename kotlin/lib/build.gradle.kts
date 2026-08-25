@@ -13,7 +13,7 @@ plugins {
 publishing {
     publications {
         create<MavenPublication>("maven") {
-            groupId = "com.obscura"
+            groupId = "dev.barrelmaker.obscura.kit"
             artifactId = "obscura-kit"
             version = "0.1.0"
             from(components["java"])
@@ -143,7 +143,7 @@ protobuf {
 sqldelight {
     databases {
         create("ObscuraDatabase") {
-            packageName.set("com.obscura.kit.db")
+            packageName.set("dev.barrelmaker.obscura.kit.db")
             dialect("app.cash.sqldelight:sqlite-3-38-dialect:2.0.2")
         }
     }
@@ -191,7 +191,7 @@ kover {
                 // Generated code — protobuf + sqldelight produce thousands
                 // of LOC we neither own nor need to cover.
                 classes(
-                    "com.obscura.kit.db.*",                  // sqldelight-generated
+                    "dev.barrelmaker.obscura.kit.db.*",                  // sqldelight-generated
                     "obscura.*",                             // protobuf-generated (obscura.v2.*)
                     "client.*",                              // protobuf-generated
                     "xyz.obscura.server.contracts.*",        // protobuf-generated (server contract types)

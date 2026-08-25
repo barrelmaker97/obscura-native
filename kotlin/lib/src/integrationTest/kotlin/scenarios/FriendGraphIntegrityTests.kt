@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import com.obscura.kit.stores.FriendStatus
+import dev.barrelmaker.obscura.kit.stores.FriendStatus
 
 /**
  * The friend graph is the only source of display names (SPEC §0.5, §0.10

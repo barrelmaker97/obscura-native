@@ -1,7 +1,7 @@
 package scenarios
 
-import com.obscura.kit.AuthState
-import com.obscura.kit.ConnectionState
+import dev.barrelmaker.obscura.kit.AuthState
+import dev.barrelmaker.obscura.kit.ConnectionState
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.jupiter.api.Assertions.*

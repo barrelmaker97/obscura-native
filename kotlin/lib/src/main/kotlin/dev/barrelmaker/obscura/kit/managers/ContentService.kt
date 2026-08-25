@@ -1,0 +1,141 @@
+package dev.barrelmaker.obscura.kit.managers
+
+import obscura.client.v1.Client.ClientMessage
+
+/**
+ * Send application entries. Upload/download attachments.
+ */
+internal class ContentService(
+    private val ctx: ClientContext
+) {
+    private val session get() = ctx.session
+    private val api get() = ctx.api
+    private val messenger get() = ctx.messenger
+    private val devices get() = ctx.devices
+    private val messageSender get() = ctx.messageSender
+
+    /**
+     * Send an application entry (`KIT_API.md` §5) — the outbox half of the thin kit.
+     *
+     * ```
+     * send(recipientUserIds, modelKey, entryId, sentAt, payload)
+     * ```
+     *
+     * **The caller names the recipients** (SPEC §0.4). The kit fans out to every device of every
+     * listed userId, plus the author's own *other* devices, and makes **no delivery decision of its
+     * own** — no audience resolution, no reading of `payload` to discover who it is for.
+     *
+     * Two properties §5 asks to be proven rather than assumed, both pinned by `EntrySendTests`:
+     *
+     * 1. **The sending device is excluded from its own fan-out.** `getSelfSyncTargets()` returns
+     *    every own device *including this one*, and a message encrypted to yourself is at best waste
+     *    and at worst a duplicate the app must dedupe.
+     * 2. **The sender gets no inbox row.** Nothing loops back locally, so the app must write its own
+     *    outgoing entry — one write path in the kit, two in the app. `payload` is what the app
+     *    stores; the kit never opens it.
+     *
+     * An empty `recipientUserIds` is legitimate and not an error: it means "my own devices only",
+     * which is what a self-scoped model wants. Failing loud is for an audience the kit was asked to
+     * *guess*, and here it never guesses.
+     */
+    suspend fun sendEntry(
+        recipientUserIds: List<String>,
+        modelKey: String,
+        entryId: String,
+        sentAt: Long,
+        payload: ByteArray,
+    ) {
+        val msg = ClientMessage.newBuilder()
+            .setTimestamp(System.currentTimeMillis())
+            .setAppEntry(obscura.client.v1.appEntry {
+                this.model = modelKey
+                this.id = entryId
+                timestamp = sentAt
+                this.data = com.google.protobuf.ByteString.copyFrom(payload)
+            }).build()
+
+        // `distinct()` because the app may legitimately name the same user twice — e.g. both
+        // participants of a canonical `userIdA_userIdB` conversation where one of them is you.
+        val targets = recipientUserIds.distinct().filter { it != session.userId }
+
+        // PER-RECIPIENT, not all-or-nothing. `sendToAllDevices` throws for a recipient with no
+        // registered devices, so letting the first failure escape would abandon recipients 2..N —
+        // and, worse, skip the own-device self-sync below, so the user's own other devices would
+        // silently never receive something they wrote. One unreachable friend must not cost the
+        // other four, or the sender's own copy.
+        val failures = mutableListOf<Pair<String, Exception>>()
+        val selfSyncFailures = mutableListOf<Pair<String, Exception>>()
+        for (userId in targets) {
+            try {
+                messageSender.sendToAllDevices(userId, msg)
+            } catch (e: Exception) {
+                // Collected rather than logged: `ClientContext` carries no logger, and the detail is
+                // more useful aggregated into the throw below than scattered across log lines.
+                failures.add(userId to e)
+            }
+        }
+
+        // Own OTHER devices. Runs whether or not a recipient failed — see above. The filter is
+        // §5 property 1: without it this device encrypts to itself.
+        val selfTargets = devices.getSelfSyncTargets().filter { it != session.deviceId }
+        val selfUserId = session.userId
+        if (selfTargets.isNotEmpty() && selfUserId != null) {
+            // PER-DEVICE, and the flush is unconditional — the same rule as the recipient loop above,
+            // for the same reason. One own device with a broken Signal session would otherwise abort
+            // the loop, leave the messages already queued for the OTHER own devices unflushed, and
+            // propagate out of `sendEntry`. The app then reports "reached nobody" for a send that
+            // reached everybody, because `writeEntry` re-throws on a total failure.
+            //
+            // Swift already did this correctly (per-device `do/catch`, unconditional flush); this is
+            // Kotlin catching up, not a new rule.
+            for (devId in selfTargets) {
+                try {
+                    messenger.queueMessage(devId, msg, selfUserId)
+                } catch (e: Exception) {
+                    selfSyncFailures.add(devId to e)
+                }
+            }
+            messenger.flushMessages()
+        }
+
+        // Throw only when NOBODY named got it. A partial failure is logged and survivable — the
+        // entry is stored, the other recipients have it, and the caller can retry. A total failure
+        // is different in kind: the app believes it sent something that reached no one, and it must
+        // be able to tell the user so.
+        if (targets.isNotEmpty() && failures.size == targets.size) {
+            throw dev.barrelmaker.obscura.kit.ObscuraError.SendFailed(
+                "$modelKey/${entryId.take(20)} reached none of its ${targets.size} recipient(s): " +
+                    failures.joinToString { "${it.first.take(8)}=${it.second.message}" }
+            )
+        }
+    }
+
+    suspend fun uploadAttachment(data: ByteArray): String = api.uploadAttachment(data)
+
+    suspend fun downloadAttachment(id: String): ByteArray = api.fetchAttachment(id)
+
+    companion object {
+        private const val MAX_CACHE_BYTES = 50L * 1024 * 1024 // 50MB
+    }
+
+    suspend fun downloadDecryptedAttachment(id: String, contentKey: ByteArray, nonce: ByteArray): ByteArray {
+        // Check cache first
+        val cached = ctx.db.attachmentCacheQueries.selectById(id).executeAsOneOrNull()
+        if (cached != null) return cached
+
+        // Cache miss — download, decrypt, cache
+        val ciphertext = api.fetchAttachment(id)
+        val plaintext = dev.barrelmaker.obscura.kit.crypto.AttachmentCrypto.decrypt(ciphertext, contentKey, nonce)
+
+        // Store in encrypted DB
+        ctx.db.attachmentCacheQueries.insert(id, plaintext, plaintext.size.toLong(), System.currentTimeMillis())
+
+        // Evict if over size limit
+        val totalSize = ctx.db.attachmentCacheQueries.totalSize().executeAsOne()
+        if (totalSize > MAX_CACHE_BYTES) {
+            ctx.db.attachmentCacheQueries.deleteOldest(10)
+        }
+
+        return plaintext
+    }
+}

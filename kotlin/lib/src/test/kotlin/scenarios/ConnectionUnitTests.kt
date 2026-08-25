@@ -1,7 +1,7 @@
 package scenarios
 
-import com.obscura.kit.network.GatewayConnection
-import com.obscura.kit.network.GatewayState
+import dev.barrelmaker.obscura.kit.network.GatewayConnection
+import dev.barrelmaker.obscura.kit.network.GatewayState
 import kotlinx.coroutines.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -19,7 +19,7 @@ class ConnectionUnitTests {
     @Test
     fun `Gateway starts disconnected`() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val api = com.obscura.kit.network.APIClient("https://obscura.barrelmaker.dev")
+        val api = dev.barrelmaker.obscura.kit.network.APIClient("https://obscura.barrelmaker.dev")
         val gw = GatewayConnection(api, scope)
 
         assertEquals(GatewayState.DISCONNECTED, gw.state.value)
@@ -34,7 +34,7 @@ class ConnectionUnitTests {
     @Test
     fun `onStateChanged fires on every transition`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val api = com.obscura.kit.network.APIClient("https://obscura.barrelmaker.dev")
+        val api = dev.barrelmaker.obscura.kit.network.APIClient("https://obscura.barrelmaker.dev")
         val gw = GatewayConnection(api, scope)
 
         val seen = mutableListOf<GatewayState>()

@@ -16,7 +16,7 @@
 # `alert` fires a visible push via `simctl push` — useful to confirm APNs plumbing.
 set -euo pipefail
 
-APP_ID="com.obscuraapp.ios"
+APP_ID="dev.barrelmaker.obscura.pix"
 SCHEME="obscura-base"
 SIM_NAME="${SIM_NAME:-iPhone 17}"
 PROJ_DIR="$(cd "$(dirname "$0")/.." && pwd)/App/obscura-base"
@@ -62,7 +62,7 @@ case "${1:-}" in
   logs)
     UDID="$(ensure_booted)"
     xcrun simctl spawn "$UDID" log stream --level debug \
-      --predicate 'eventMessage CONTAINS "[ObscuraApp]" OR eventMessage CONTAINS "[push]"'
+      --predicate 'eventMessage CONTAINS "[ObscuraPix]" OR eventMessage CONTAINS "[push]"'
     ;;
   fire)
     UDID="$(ensure_booted)"
