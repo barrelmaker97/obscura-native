@@ -13,7 +13,7 @@ string is QR-encoded or shared as text.
 
 ## API
 
-`FriendCode` (`lib/src/main/kotlin/com/obscura/kit/FriendCode.kt`) is the codec, and the facade
+`FriendCode` (`lib/src/main/kotlin/dev/barrelmaker/obscura/kit/FriendCode.kt`) is the codec, and the facade
 delegates to it:
 
 ```kotlin
