@@ -63,10 +63,6 @@ kotlin-integration api="http://localhost:3000":
 swift-bootstrap:
     ./swift/scripts/bootstrap-libsignal.sh host
 
-# Fetch and build the pinned iOS Simulator libsignal FFI.
-swift-bootstrap-ios-sim:
-    ./swift/scripts/bootstrap-libsignal.sh ios-sim
-
 # Prepare the local Swift package dependency.
 swift-prepare: swift-bootstrap
     cd swift && ./dev.sh prepare

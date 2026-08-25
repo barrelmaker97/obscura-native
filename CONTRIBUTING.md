@@ -42,11 +42,10 @@ For Swift development:
 
 ```bash
 just doctor-swift
-just swift-bootstrap
 ```
 
-The first Swift bootstrap fetches the pinned libsignal commit and builds its
-host FFI. Later runs reuse that output.
+The first Swift build or test fetches the pinned libsignal commit and builds
+its host FFI. Later runs reuse that output.
 
 ## Checks
 

@@ -40,10 +40,8 @@ jobs:
           path: swift/vendored/libsignal
           key: libsignal-${{ env.LIBSIGNAL_REF }}-host-macos26
 
-      - name: Fetch + build libsignal FFI (host)
-        run: |
-          brew list protobuf >/dev/null 2>&1 || brew install protobuf
-          just --justfile ../justfile swift-bootstrap
+      - name: Install protobuf
+        run: brew list protobuf >/dev/null 2>&1 || brew install protobuf
 
       - name: Unit tests
         run: just --justfile ../justfile swift-unit
@@ -75,10 +73,8 @@ jobs:
           # Same key as the unit job (same arch) — the cache is shared.
           key: libsignal-${{ env.LIBSIGNAL_REF }}-host-macos26
 
-      - name: Fetch + build libsignal FFI (host)
-        run: |
-          brew list protobuf >/dev/null 2>&1 || brew install protobuf
-          just --justfile ../justfile swift-bootstrap
+      - name: Install protobuf
+        run: brew list protobuf >/dev/null 2>&1 || brew install protobuf
 
       - name: Resolve latest obscura-server commit
         id: server-ref
