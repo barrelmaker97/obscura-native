@@ -68,14 +68,15 @@ updates:
       # api/engine/launcher aligned so 5.x bumps actually build).
       - dependency-name: "org.junit.jupiter:*"
         update-types: ["version-update:semver-major"]
-      # Gradle wrapper: kept current within Gradle 8.x (8.14.x, matching
-      # pix). A 9.x MAJOR is gated by hand — it removes APIs and last
-      # verified as a red CI run (PR #25, gradle 9.6.1) — so it needs a
-      # deliberate Gradle-9 readiness pass. Within-8.x minors flow freely.
+      # Gradle wrapper: pinned to obscura-pix's app wrapper (currently
+      # 8.14.5). Pix's wrapper is RN-gated and hand-bumped, so letting
+      # within-8.x minors flow freely here made the kit drift AHEAD of pix
+      # (kit 8.14.5 vs pix 8.14.3) even though the intent is to match pix.
+      # Gate ALL wrapper bumps and move this by hand in lockstep with pix's
+      # android wrapper. A 9.x MAJOR is separately gated — it removes APIs
+      # and last verified as a red CI run (PR #25, gradle 9.6.1).
       - dependency-name: "gradle"
-        update-types: ["version-update:semver-major"]
       - dependency-name: "gradle-wrapper"
-        update-types: ["version-update:semver-major"]
 
   # SwiftPM dependencies for the iOS platform package.
   - package-ecosystem: "swift"
