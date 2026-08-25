@@ -24,12 +24,10 @@ case "$MODE" in
     ;;
 esac
 
-for tool in git rustup protoc; do
-  command -v "$tool" >/dev/null 2>&1 || {
-    echo "error: $tool is required to build libsignal" >&2
-    exit 1
-  }
-done
+command -v git >/dev/null 2>&1 || {
+  echo "error: git is required to build libsignal" >&2
+  exit 1
+}
 
 if [[ -d "$SOURCE/.git" ]] &&
    [[ "$(git -C "$SOURCE" rev-parse HEAD 2>/dev/null || true)" == "$REF" ]] &&
@@ -37,6 +35,13 @@ if [[ -d "$SOURCE/.git" ]] &&
   echo "libsignal $REF ($MODE) is already built."
   exit 0
 fi
+
+for tool in rustup protoc; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "error: $tool is required to build libsignal" >&2
+    exit 1
+  }
+done
 
 mkdir -p "$ROOT/vendored"
 if [[ ! -e "$SOURCE" ]]; then

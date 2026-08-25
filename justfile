@@ -51,8 +51,12 @@ kotlin-coverage-verify:
 kotlin-publish-local:
     cd kotlin && ../scripts/run-with-java-21.sh ./gradlew :lib:publishToMavenLocal --no-daemon
 
+# Run the Kotlin CI tasks in one Gradle process.
+kotlin-ci:
+    cd kotlin && ../scripts/run-with-java-21.sh ./gradlew :lib:test :lib:koverHtmlReport :lib:koverXmlReport :lib:koverVerify :lib:publishToMavenLocal --no-daemon
+
 # Run the full fast Kotlin CI gate.
-kotlin-check: protocol-check kotlin-unit kotlin-coverage kotlin-coverage-verify kotlin-publish-local
+kotlin-check: protocol-check kotlin-ci
 
 # Run Kotlin server-dependent tests against an explicit local endpoint.
 kotlin-integration api="http://localhost:3000":

@@ -27,11 +27,14 @@ jobs:
         with:
           submodules: recursive
       - uses: extractions/setup-just@v4
-      - uses: dtolnay/rust-toolchain@stable
 
       # Runner default Xcode is 15.4 (Swift 5.10); Package.swift needs tools 6.0.
       - name: Select latest Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)"
+
+      - name: Resolve Swift toolchain cache key
+        id: swift-toolchain
+        run: echo "version=$(xcrun swift --version | shasum -a 256 | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Cache libsignal (source + built FFI)
         id: libsignal
@@ -40,7 +43,19 @@ jobs:
           path: swift/vendored/libsignal
           key: libsignal-${{ env.LIBSIGNAL_REF }}-host-macos26
 
-      - name: Install protobuf
+      - name: Cache SwiftPM build
+        uses: actions/cache@v6
+        with:
+          path: swift/.build
+          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.swift-toolchain.outputs.version }}-${{ env.LIBSIGNAL_REF }}-${{ hashFiles('swift/Package.swift', 'swift/Package.resolved') }}-${{ github.sha }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.swift-toolchain.outputs.version }}-${{ env.LIBSIGNAL_REF }}-${{ hashFiles('swift/Package.swift', 'swift/Package.resolved') }}-
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.libsignal.outputs.cache-hit != 'true'
+
+      - name: Install protobuf when building libsignal
+        if: steps.libsignal.outputs.cache-hit != 'true'
         run: brew list protobuf >/dev/null 2>&1 || brew install protobuf
 
       - name: Unit tests
@@ -60,10 +75,13 @@ jobs:
         with:
           submodules: recursive
       - uses: extractions/setup-just@v4
-      - uses: dtolnay/rust-toolchain@stable
 
       - name: Select latest Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)"
+
+      - name: Resolve Swift toolchain cache key
+        id: swift-toolchain
+        run: echo "version=$(xcrun swift --version | shasum -a 256 | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Cache libsignal (source + built FFI)
         id: libsignal
@@ -73,8 +91,13 @@ jobs:
           # Same key as the unit job (same arch) — the cache is shared.
           key: libsignal-${{ env.LIBSIGNAL_REF }}-host-macos26
 
-      - name: Install protobuf
-        run: brew list protobuf >/dev/null 2>&1 || brew install protobuf
+      - name: Cache SwiftPM build
+        uses: actions/cache@v6
+        with:
+          path: swift/.build
+          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.swift-toolchain.outputs.version }}-${{ env.LIBSIGNAL_REF }}-${{ hashFiles('swift/Package.swift', 'swift/Package.resolved') }}-${{ github.sha }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.swift-toolchain.outputs.version }}-${{ env.LIBSIGNAL_REF }}-${{ hashFiles('swift/Package.swift', 'swift/Package.resolved') }}-
 
       - name: Resolve latest obscura-server commit
         id: server-ref
@@ -93,10 +116,16 @@ jobs:
           path: ~/obscura-server-bin
           key: obscura-server-${{ steps.server-ref.outputs.sha }}-macos26
 
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.libsignal.outputs.cache-hit != 'true' || steps.server-bin.outputs.cache-hit != 'true'
+
+      - name: Install protobuf when building Rust dependencies
+        if: steps.libsignal.outputs.cache-hit != 'true' || steps.server-bin.outputs.cache-hit != 'true'
+        run: brew list protobuf >/dev/null 2>&1 || brew install protobuf
+
       - name: Build obscura-server natively (only when upstream changed)
         if: steps.server-bin.outputs.cache-hit != 'true'
         run: |
-          brew list protobuf >/dev/null 2>&1 || brew install protobuf
           for i in 1 2 3; do  # --recurse-submodules: proto/ is a submodule
             git clone --depth 1 --recurse-submodules \
               https://github.com/barrelmaker97/obscura-server /tmp/obscura-server && break
