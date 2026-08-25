@@ -1,6 +1,6 @@
 package scenarios
 
-import com.obscura.kit.TypingState
+import dev.barrelmaker.obscura.kit.TypingState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout

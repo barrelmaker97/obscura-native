@@ -1,8 +1,8 @@
 package scenarios
 
-import com.obscura.kit.ObscuraClient
-import com.obscura.kit.ObscuraConfig
-import com.obscura.kit.AuthState
+import dev.barrelmaker.obscura.kit.ObscuraClient
+import dev.barrelmaker.obscura.kit.ObscuraConfig
+import dev.barrelmaker.obscura.kit.AuthState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.*

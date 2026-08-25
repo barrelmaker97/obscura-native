@@ -1,10 +1,10 @@
 package scenarios
 
-import com.obscura.kit.ObscuraClient
-import com.obscura.kit.ObscuraConfig
-import com.obscura.kit.AuthState
-import com.obscura.kit.MessageWakeEvent
-import com.obscura.kit.stores.FriendStatus
+import dev.barrelmaker.obscura.kit.ObscuraClient
+import dev.barrelmaker.obscura.kit.ObscuraConfig
+import dev.barrelmaker.obscura.kit.AuthState
+import dev.barrelmaker.obscura.kit.MessageWakeEvent
+import dev.barrelmaker.obscura.kit.stores.FriendStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.*
@@ -193,7 +193,7 @@ suspend fun sendAndVerify(sender: ObscuraClient, receiver: ObscuraClient, text: 
     // Consuming a channel item here would also steal it from callers that wait
     // for a specific notification afterwards.
     val deadline = System.currentTimeMillis() + timeoutMs
-    var row: com.obscura.kit.stores.InboxRecord? = null
+    var row: dev.barrelmaker.obscura.kit.stores.InboxRecord? = null
     while (System.currentTimeMillis() < deadline && row == null) {
         row = receiver.inbox.peek(200).find { it.entryId == entryId }
         if (row == null) delay(250)

@@ -30,7 +30,7 @@ public enum DatabaseSecret {
     ///   in place, it has to be re-created — and the key it holds is the only way to read the
     ///   message store. Accepting the parameter now costs nothing and keeps that door open.
     public static func getOrCreate(userId: String, accessGroup: String? = nil) -> Data {
-        let service = "com.obscura.dbsecret"
+        let service = "dev.barrelmaker.obscura.kit.dbsecret"
         let account = "db_key_\(userId)"
 
         // Try to load existing key

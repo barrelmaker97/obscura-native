@@ -104,7 +104,7 @@ class EntrySendTests {
             "the kit stores nothing on send; the app writes its own outgoing entry")
 
         // ...and doing so is a one-liner, which is the point: the app already has the data.
-        alice.entries.put("story", com.obscura.kit.stores.StoredEntry(
+        alice.entries.put("story", dev.barrelmaker.obscura.kit.stores.StoredEntry(
             id = "story_1", data = """{"content":"mine"}""",
             sentAt = System.currentTimeMillis(), authorDeviceId = alice.deviceId!!,
         ))
@@ -158,7 +158,7 @@ class EntrySendTests {
         val alice = registerAndConnect("nobody_a")
         val ghost = java.util.UUID.randomUUID().toString()
 
-        assertThrows(com.obscura.kit.ObscuraError.SendFailed::class.java) {
+        assertThrows(dev.barrelmaker.obscura.kit.ObscuraError.SendFailed::class.java) {
             runBlocking {
                 alice.send(
                     recipientUserIds = listOf(ghost),

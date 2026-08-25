@@ -1,9 +1,9 @@
 package scenarios
 
 import com.google.protobuf.ByteString
-import com.obscura.kit.ObscuraClient
-import com.obscura.kit.ObscuraLogger
-import com.obscura.kit.crypto.UuidCodec
+import dev.barrelmaker.obscura.kit.ObscuraClient
+import dev.barrelmaker.obscura.kit.ObscuraLogger
+import dev.barrelmaker.obscura.kit.crypto.UuidCodec
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.*

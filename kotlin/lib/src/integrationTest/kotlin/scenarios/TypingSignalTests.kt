@@ -1,7 +1,7 @@
 package scenarios
 
-import com.obscura.kit.TypingState
-import com.obscura.kit.wire.TypingTracker
+import dev.barrelmaker.obscura.kit.TypingState
+import dev.barrelmaker.obscura.kit.wire.TypingTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking

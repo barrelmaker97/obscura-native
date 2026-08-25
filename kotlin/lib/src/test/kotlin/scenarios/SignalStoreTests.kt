@@ -1,8 +1,8 @@
 package scenarios
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
-import com.obscura.kit.crypto.SignalStore
-import com.obscura.kit.db.ObscuraDatabase
+import dev.barrelmaker.obscura.kit.crypto.SignalStore
+import dev.barrelmaker.obscura.kit.db.ObscuraDatabase
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test

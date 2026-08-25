@@ -1,10 +1,10 @@
 package scenarios
 
-import com.obscura.kit.AuthState
-import com.obscura.kit.ConnectionState
-import com.obscura.kit.ObscuraClient
-import com.obscura.kit.ObscuraConfig
-import com.obscura.kit.stores.FriendStatus
+import dev.barrelmaker.obscura.kit.AuthState
+import dev.barrelmaker.obscura.kit.ConnectionState
+import dev.barrelmaker.obscura.kit.ObscuraClient
+import dev.barrelmaker.obscura.kit.ObscuraConfig
+import dev.barrelmaker.obscura.kit.stores.FriendStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.*
