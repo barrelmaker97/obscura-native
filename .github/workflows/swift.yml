@@ -11,7 +11,7 @@ concurrency:
 
 env:
   # libsignal is cloned + Rust-built at setup (gitignored, not vendored in-repo).
-  LIBSIGNAL_VERSION: v0.40.0
+  LIBSIGNAL_REF: 7ef4efdb85d8b2ebd77f3cf1e2b542a2115033c5
 
 defaults:
   run:
@@ -26,6 +26,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
+      - uses: extractions/setup-just@v4
       - uses: dtolnay/rust-toolchain@stable
 
       # Runner default Xcode is 15.4 (Swift 5.10); Package.swift needs tools 6.0.
@@ -37,21 +38,13 @@ jobs:
         uses: actions/cache@v6
         with:
           path: swift/vendored/libsignal
-          key: libsignal-${{ env.LIBSIGNAL_VERSION }}-macos26
+          key: libsignal-${{ env.LIBSIGNAL_REF }}-host-macos26
 
-      - name: Fetch + build libsignal FFI (host)
-        if: steps.libsignal.outputs.cache-hit != 'true'
-        run: |
-          brew install protobuf  # prost-build needs protoc on PATH
-          for i in 1 2 3; do  # retry: runners occasionally flake on DNS
-            git clone --depth 1 --branch "$LIBSIGNAL_VERSION" \
-              https://github.com/signalapp/libsignal vendored/libsignal && break
-            rm -rf vendored/libsignal; sleep 15
-          done
-          (cd vendored/libsignal && ./swift/build_ffi.sh -r)
+      - name: Install protobuf
+        run: brew list protobuf >/dev/null 2>&1 || brew install protobuf
 
       - name: Unit tests
-        run: ./dev.sh test --filter UnitTests
+        run: just --justfile ../justfile swift-unit
 
   # Integration suite against a NATIVE obscura-server. No containers anywhere:
   # GitHub's arm64 macOS runners can't virtualize (no Docker/colima/apple-container),
@@ -66,6 +59,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
+      - uses: extractions/setup-just@v4
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Select latest Xcode
@@ -77,18 +71,10 @@ jobs:
         with:
           path: swift/vendored/libsignal
           # Same key as the unit job (same arch) — the cache is shared.
-          key: libsignal-${{ env.LIBSIGNAL_VERSION }}-macos26
+          key: libsignal-${{ env.LIBSIGNAL_REF }}-host-macos26
 
-      - name: Fetch + build libsignal FFI (host)
-        if: steps.libsignal.outputs.cache-hit != 'true'
-        run: |
-          brew install protobuf  # prost-build needs protoc on PATH
-          for i in 1 2 3; do  # retry: runners occasionally flake on DNS
-            git clone --depth 1 --branch "$LIBSIGNAL_VERSION" \
-              https://github.com/signalapp/libsignal vendored/libsignal && break
-            rm -rf vendored/libsignal; sleep 15
-          done
-          (cd vendored/libsignal && ./swift/build_ffi.sh -r)
+      - name: Install protobuf
+        run: brew list protobuf >/dev/null 2>&1 || brew install protobuf
 
       - name: Resolve latest obscura-server commit
         id: server-ref
@@ -182,7 +168,7 @@ jobs:
           # has them disabled, so drop the sleeps (auth pacing alone is 1s/call).
           SERVER_REQUEST_DELAY_MS: 0
           AUTH_REQUEST_DELAY_MS: 0
-        run: ./dev.sh test --filter ScenarioTests
+        run: just --justfile ../justfile swift-integration http://localhost:3000
 
       - name: Server log on failure
         if: failure()

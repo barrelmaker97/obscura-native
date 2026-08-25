@@ -39,16 +39,16 @@ For an existing checkout:
 git submodule update --init
 ```
 
+Contributor setup and workflow are documented in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Build and test
 
 ```bash
-# Kotlin: JDK 21
-cd kotlin
-./gradlew :lib:test
-
-# Swift: macOS 13+ and Xcode 16+
-cd ../swift
-./dev.sh test --filter UnitTests
+brew install just
+just setup
+just kotlin-check
+just swift-unit # macOS 13+ and Xcode 16+
 ```
 
 Kotlin integration tests and Swift scenario tests exercise a server. Follow
