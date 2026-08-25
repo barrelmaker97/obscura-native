@@ -57,6 +57,10 @@ updates:
       # the `app.cash.sqldelight` gradle plugin.
       - dependency-name: "app.cash.sqldelight:*"
       - dependency-name: "app.cash.sqldelight"
+      # OkHttp 5.5's Android artifact requires compileSdk 37, but Pix's
+      # React Native 0.86 / AGP 8.12 toolchain supports compileSdk 36.
+      # Move this only with the corresponding Pix Android toolchain upgrade.
+      - dependency-name: "com.squareup.okhttp3:okhttp"
       # JUnit 6 is a major migration (JUnit Platform 6, new Java baseline,
       # API surface changes) — it fails CI outright and needs a deliberate
       # port. Patches/minors within 5.x still auto-PR (the junit-bom +
