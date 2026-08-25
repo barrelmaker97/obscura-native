@@ -61,20 +61,16 @@ updates:
       # React Native 0.86 / AGP 8.12 toolchain supports compileSdk 36.
       # Move this only with the corresponding Pix Android toolchain upgrade.
       - dependency-name: "com.squareup.okhttp3:okhttp"
-      # JUnit 6 is a major migration (JUnit Platform 6, new Java baseline,
-      # API surface changes) — it fails CI outright and needs a deliberate
-      # port. Patches/minors within 5.x still auto-PR (the junit-bom +
-      # explicit junit-platform-launcher in lib/build.gradle.kts keep the
-      # api/engine/launcher aligned so 5.x bumps actually build).
-      - dependency-name: "org.junit.jupiter:*"
+      # Future JUnit BOM majors require a deliberate migration; patches and
+      # minors within the current 6.x line can flow automatically.
+      - dependency-name: "org.junit:junit-bom"
         update-types: ["version-update:semver-major"]
       # Gradle wrapper: pinned to obscura-pix's app wrapper (currently
       # 8.14.5). Pix's wrapper is RN-gated and hand-bumped, so letting
       # within-8.x minors flow freely here made the kit drift AHEAD of pix
       # (kit 8.14.5 vs pix 8.14.3) even though the intent is to match pix.
       # Gate ALL wrapper bumps and move this by hand in lockstep with pix's
-      # android wrapper. A 9.x MAJOR is separately gated — it removes APIs
-      # and last verified as a red CI run (PR #25, gradle 9.6.1).
+      # Android wrapper.
       - dependency-name: "gradle"
       - dependency-name: "gradle-wrapper"
 
