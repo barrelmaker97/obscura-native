@@ -20,7 +20,7 @@ prepare_libsignal_package() {
   # monorepo package itself lives at swift/, so depending on libsignal/swift
   # directly creates an identity collision.
   rm -rf "$LIBSIGNAL_SWIFT_PACKAGE"
-  cp -R "$LIBSIGNAL_SWIFT_SOURCE" "$LIBSIGNAL_SWIFT_PACKAGE"
+  cp -pR "$LIBSIGNAL_SWIFT_SOURCE" "$LIBSIGNAL_SWIFT_PACKAGE"
 }
 
 case "${1:-test}" in
