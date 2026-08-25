@@ -60,12 +60,9 @@ kotlin-integration api="http://localhost:3000":
     cd kotlin && OBSCURA_TEST_API="{{ api }}" ../scripts/run-with-java-21.sh ./gradlew :lib:integrationTest --no-daemon
 
 # Fetch and build the pinned host libsignal FFI.
+[private]
 swift-bootstrap:
     ./swift/scripts/bootstrap-libsignal.sh host
-
-# Prepare the local Swift package dependency.
-swift-prepare: swift-bootstrap
-    cd swift && ./dev.sh prepare
 
 # Build the Swift package.
 swift-build: swift-bootstrap
