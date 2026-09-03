@@ -11,6 +11,7 @@ They are single-consumer components, not general-purpose SDKs.
 | `swift/` | Swift package used by the iOS application bridge. |
 | `proto/` | Transport schema shared with `obscura-server`. |
 | `protocol/` | Client-to-client schema and Kotlin/Swift wire vectors. |
+| [`docs/`](docs/README.md) | Shared contracts, contributor references, and project history. |
 
 The two implementations share the wire contract and security invariants. They
 do not copy each other's architecture or promise broader feature parity.
