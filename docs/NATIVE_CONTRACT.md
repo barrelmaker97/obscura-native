@@ -10,9 +10,9 @@ Scope: the client-to-client (kit ↔ kit) contract — the E2E payload the serve
 Layers:
 
 - **Transport** —
-  [`obscura/v1/obscura.proto`](https://github.com/barrelmaker97/obscura-proto/blob/main/obscura/v1/obscura.proto).
+  [`obscura/v1/obscura.proto`](https://github.com/obscura-messaging/obscura-proto/blob/main/obscura/v1/obscura.proto).
   Shared with the server and specified by
-  [`TRANSPORT.md`](https://github.com/barrelmaker97/obscura-proto/blob/main/TRANSPORT.md).
+  [`TRANSPORT.md`](https://github.com/obscura-messaging/obscura-proto/blob/main/TRANSPORT.md).
 - **Content** — [`protocol/obscura/client/v1/client.proto`](../protocol/obscura/client/v1/client.proto).
 - **Semantics** — this document. What the content *means* and how kits act on it.
 
